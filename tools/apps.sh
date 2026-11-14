@@ -44,6 +44,7 @@ app_targets() {   # app_targets APP SCHEME: "<source>|<destination>" for every i
 app_ours() { pty_ours "$1" "$2"; }   # pty_ours understands the # // and XML markers and directories (flavor.toml)
 app_link_ours() { [ -L "$1" ] && case "$(readlink "$1")" in *candy-for-gnome-*) return 0 ;; esac; return 1; }
 app_ask() { local a; if [ "$tty_in" = 1 ]; then read -r -u 3 -p "$1 [y/N] " a || a=n; case "$a" in [yY]*) return 0 ;; esac; fi; return 1; }
+# shellcheck disable=SC2088  # the tilde is literal on purpose: Alacritty expands ~ in its import paths
 app_tilde() { case "$1" in "$HOME"/*) echo "~/${1#"$HOME"/}" ;; *) echo "$1" ;; esac; }
 app_write() { cat "$2" > "$1" && rm -f "$2"; }   # write through the file (a user config may itself be a link), keeping its inode and mode
 app_pick() {      # app_pick APP SCHEME EXT WANT: WANT (dark|light) when the scheme has that variant, else the other (dark-only / light-only schemes)
