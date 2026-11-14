@@ -228,7 +228,7 @@ if [ "$kind" = icons ]; then load_sources; migrate_cache; fi
 # Featured themes: listed first (marked with a star) in list-themes and the install/switch/remove checklists, in this order, then every
 # other scheme alphabetically. The ONE place to change the favorites; tools/test.sh and CI read the same line (FEATURED_THEMES may be
 # set in the environment to override it).
-FEATURED_THEMES="${FEATURED_THEMES-nordic gruvbox-material everforest tokyo-night dracula fairy-floss}"
+FEATURED_THEMES="${FEATURED_THEMES-nordic gruvbox-material everforest tokyo-night dracula fairy-floss catppuccin aubergine}"
 
 items=(); labels=(); declare -A i_src i_dir i_var
 set_name() {       # set name of an icon dir $1: its index.theme Name= when that is a plain id, else $2
