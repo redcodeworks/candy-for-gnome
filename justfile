@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# gnome-themes: terminal-inspired GNOME themes (one top-level directory per scheme) and icon sets from several icon repos
+# candy-for-gnome: terminal-inspired GNOME themes (one top-level directory per scheme) and icon sets from several icon repos
 # (tools/icon-sources.conf). Run `just` for the list; every recipe is a thin call into tools/themectl.sh. Needs just, bash, git.
 
 [private]
@@ -33,7 +33,7 @@ remove-theme name="":
 switch-theme name="" accent="":
     @tools/themectl.sh themes switch "{{name}}" "{{accent}}"
 
-# Icons: sets of the repos in tools/icon-sources.conf (Papirus, Gruvbox Plus, Zafiro, candy, Tela, Fluent; ICONS_URL replaces the papirus URL), listed from the registry without cloning; the sources of the chosen sets are cloned into ~/.cache/gnome-themes/icons and the sets installed into ~/.local/share/icons (ICONS_DEST)
+# Icons: sets of the repos in tools/icon-sources.conf (Papirus, Gruvbox Plus, Zafiro, candy, Tela, Fluent; ICONS_URL replaces the papirus URL), listed from the registry without cloning; the sources of the chosen sets are cloned into ~/.cache/candy-for-gnome/icons and the sets installed into ~/.local/share/icons (ICONS_DEST)
 
 # List the available icon sets (a check mark = installed)
 [group('icons')]
@@ -60,14 +60,14 @@ remove-icon name="":
 switch-icon name="":
     @tools/themectl.sh icons switch "{{name}}"
 
-# Development: regenerate one scheme (or all) from its scheme.toml: palette tables, GTK3, GTK4 and GNOME Shell CSS from the toolkits' own stock stylesheets, the libadwaita file, the accent maps and the GtkSourceView style schemes (needs python3-gobject, GTK 3, GTK 4 and gnome-shell)
+# Development: regenerate one scheme (or all) from its scheme.toml: palette tables, GTK3, GTK4 and GNOME Shell CSS from the toolkits' own stock stylesheets, the libadwaita file, the accent maps and the GtkSourceView style schemes and the Ghostty themes (needs python3-gobject, GTK 3, GTK 4 and gnome-shell)
 [private]
 generate theme="all":
     #!/usr/bin/env bash
     set -euo pipefail
     export PYTHONDONTWRITEBYTECODE=1
     if [ "{{theme}}" = all ]; then schemes=$(for f in */scheme.toml; do dirname "$f"; done); else schemes="{{theme}}"; fi
-    [ -n "${GNOME_THEMES_SKIP_ASSETS:-}" ] || python3 -I tools/assets-gen.py
+    [ -n "${CANDY_FOR_GNOME_SKIP_ASSETS:-}" ] || python3 -I tools/assets-gen.py
     for s in $schemes; do
         echo "== $s"
         python3 -I tools/palette-from-scheme.py "$s"
@@ -81,6 +81,7 @@ generate theme="all":
         for d in "$s"/themes/*/; do [ -f "$d/LICENSE" ] || cp gruvbox-material/themes/Gruvbox-Material/LICENSE "$d/LICENSE"; done
         python3 -I tools/accent-maps-gen.py "$s" "$acc"
         python3 -I tools/gtksourceview-gen.py "$s"
+        python3 -I tools/ghostty-gen.py "$s"
         rm -rf "$acc"
     done
 

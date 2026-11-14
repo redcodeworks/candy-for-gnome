@@ -1,8 +1,13 @@
-# gnome-themes
+# candy-for-gnome
 
 Terminal-inspired color schemes for GNOME: GTK 3, GTK 4 / libadwaita and the GNOME Shell, plus an
 installer for the themes and for a few icon sets. Only the colors change, so layout and behavior stay
 stock. Matching terminal (Ptyxis) and editor (GtkSourceView) colors are included.
+
+candy-for-gnome is an independent project and is not affiliated with, endorsed by, or sponsored by the
+GNOME Foundation or the GNOME Project. It provides themes designed for use with the GNOME desktop. The
+GNOME logo and GNOME name are registered trademarks or trademarks of GNOME Foundation in the United
+States or other countries.
 
 ## Requirements
 
@@ -11,7 +16,7 @@ stock. Matching terminal (Ptyxis) and editor (GtkSourceView) colors are included
 ## Install and usage
 
 ```
-git clone https://github.com/redcodeworks/gnome-themes && cd gnome-themes
+git clone https://github.com/redcodeworks/candy-for-gnome && cd candy-for-gnome
 just install-theme          # checklist; or: just install-theme gruvbox-material
 just switch-theme            # apply it (GTK, Shell, libadwaita), asks for the accent; or: just switch-theme nordic cyan
 just install-icon           # checklist; or: just install-icon Papirus-Dark
@@ -30,7 +35,7 @@ Themes go to `~/.themes`, icons to `~/.local/share/icons`, as real copies. Check
 | `switch-theme [name] [accent]` | `switch-icon [name]` | checklist without a name |
 
 Update with `just update-theme` / `just update-icon` (themes pull your checkout first); remove with
-`just remove-theme` / `just remove-icon`. A same-named folder that gnome-themes did not install is only
+`just remove-theme` / `just remove-icon`. A same-named folder that candy-for-gnome did not install is only
 replaced or removed after you confirm.
 
 ## Themes
@@ -43,6 +48,20 @@ palettes come from the built-in Ptyxis terminal palettes, so the terminal, the a
 
 Icon sets: Papirus, Gruvbox Plus, Zafiro, candy, Tela and Fluent (sources in `tools/icon-sources.conf`).
 `switch-theme` also selects the matching Ptyxis built-in palette (the light or dark one, by the system setting, for schemes that have two) and the Text Editor color scheme.
+
+## Ghostty
+
+If you use the Ghostty terminal and have a `~/.config/ghostty` folder, `switch-theme` also sets a matching
+Ghostty theme that follows the light/dark setting of your system. Ghostty reads it through one line that you
+add to your Ghostty config (`switch-theme` asks once before adding it, or prints it when there is no terminal):
+
+```
+config-file = ?candy-for-gnome.conf
+```
+
+The theme set by that line wins over a `theme =` line in your own config. Ghostty does not reload by itself:
+press `ctrl+shift+,` in open Ghostty windows after switching. `remove-theme` removes the theme files and never
+edits your config.
 
 ## Flatpak apps
 
