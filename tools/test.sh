@@ -65,11 +65,18 @@ export PATH="$T/bin:$PATH" XDG_CONFIG_HOME="$T/cfg" XDG_STATE_HOME="$T/state" CA
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 # a stand-in flatpak (FLATPAK_DB: the global override's filesystems, one entry per line); only the calls themectl makes. Absent unless a test
 # puts $T/fpbin on the PATH, so the other tests behave like a machine without Flatpak
-mkdir -p "$T/fpbin"; export FLATPAK_DB="$T/flatpak.db"; : > "$FLATPAK_DB"
+mkdir -p "$T/fpbin"; export FLATPAK_DB="$T/flatpak.db" FLATPAK_GS="$T/flatpak-gs.db"; : > "$FLATPAK_DB"; : > "$FLATPAK_GS"
 cat > "$T/fpbin/flatpak" <<'SH'
 #!/bin/sh
 db="${FLATPAK_DB:?}"
 if [ "$1" = info ]; then case " ${FLATPAK_INFO:-} " in *" $2 "*) exit 0 ;; esac; exit 1; fi
+if [ "$1" = run ]; then   # flatpak run --command=gsettings APP set|get SCHEMA KEY [VALUE]: the app's own store (FLATPAK_GS lines app,schema,key,value TAB separated); FLATPAK_GS_RO=1 ignores writes
+    [ "$2" = --command=gsettings ] || exit 2; app="$3"; shift 3; gs="${FLATPAK_GS:?}"; echo "run $app $*" >> "$gs.calls"
+    case "$1" in
+      set) [ -n "${FLATPAK_GS_RO:-}" ] || { grep -vF "$app	$2	$3	" "$gs" > "$gs.new" || true; printf '%s\t%s\t%s\t%s\n' "$app" "$2" "$3" "$4" >> "$gs.new"; mv "$gs.new" "$gs"; } ;;
+      get) echo "'$(awk -F'\t' -v a="$app" -v s="$2" -v k="$3" '$1==a && $2==s && $3==k {v=$4} END {print v}' "$gs")'" ;;
+    esac; exit 0
+fi
 [ "$1" = override ] && [ "$2" = --user ] || exit 2
 shift 2
 for a in "$@"; do case "$a" in
@@ -465,10 +472,30 @@ ids="candy-for-gnome-gruvbox-material-dark.xml candy-for-gnome-gruvbox-material-
 for d in "$GTKSOURCEVIEW_STYLES" "$FLATPAK_APPS/org.gnome.TextEditor/data/gtksourceview-5/styles" "$FLATPAK_APPS/org.gnome.Builder/data/gtksourceview-5/styles"; do for f in $ids; do [ -f "$d/$f" ] || ok=0; done; done
 [ $ok = 1 ] && chk ok "install-theme copies the style schemes into the user dir and into the Flatpak editors' data dirs (Text Editor by dir, Builder via flatpak info)" || chk fail "gsv install ($(ls "$GTKSOURCEVIEW_STYLES" 2>&1 | tr '\n' ' '))"
 out=$(FLATPAK_INFO="org.gnome.Builder" PATH="$T/fpbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
-[ "$(dconf read /org/gnome/TextEditor/style-scheme)" = "'candy-for-gnome-gruvbox-material-dark'" ] && [ "$(dconf read /org/gnome/builder/editor/style-scheme-name)" = "'candy-for-gnome-gruvbox-material-dark'" ] && chk ok "switch-theme sets Text Editor and (Builder present) Builder to the -dark id while the desktop is dark" || chk fail "gsv switch dark ($(grep -E 'TextEditor|builder' "$DCONF_DB" | tr '\t\n' '= '))"
+gsread() { awk -F'\t' -v a="$1" -v s="$2" -v k="$3" '$1==a && $2==s && $3==k {v=$4} END {print v}' "$FLATPAK_GS"; }
+[ "$(dconf read /org/gnome/TextEditor/style-scheme)" = "'candy-for-gnome-gruvbox-material-dark'" ] && [ "$(gsread org.gnome.Builder org.gnome.builder.editor style-scheme-name)" = "candy-for-gnome-gruvbox-material-dark" ] && [ -z "$(dconf read /org/gnome/builder/editor/style-scheme-name)" ] && printf '%s\n' "$out" | grep -q "Builder (Flatpak) style scheme is now candy-for-gnome-gruvbox-material-dark" && chk ok "switch-theme: Text Editor (not a Flatpak) through host dconf, Builder (Flatpak) inside its sandbox store with a read-back, -dark id while the desktop is dark" || chk fail "gsv switch dark ($(grep -E 'TextEditor|builder' "$DCONF_DB" | tr '\t\n' '= ') / $(tr '\t\n' '= ' < "$FLATPAK_GS"))"
 lbin="$T/bin-light"; mkdir -p "$lbin"; printf '#!/bin/sh\ncase "$1" in set) : ;; get) case "$3" in color-scheme) echo "\x27default\x27";; *) echo "\x27x\x27";; esac ;; list-schemas) echo org.gnome.shell.extensions.user-theme ;; esac\n' > "$lbin/gsettings"; chmod +x "$lbin/gsettings"
 PATH="$lbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null >/dev/null 2>&1
-[ "$(dconf read /org/gnome/TextEditor/style-scheme)" = "'candy-for-gnome-gruvbox-material-light'" ] && [ "$(dconf read /org/gnome/builder/editor/style-scheme-name)" = "'candy-for-gnome-gruvbox-material-dark'" ] && chk ok "light desktop: the -light id for Text Editor; Builder untouched when it is not installed" || chk fail "gsv switch light"
+[ "$(dconf read /org/gnome/TextEditor/style-scheme)" = "'candy-for-gnome-gruvbox-material-light'" ] && [ "$(gsread org.gnome.Builder org.gnome.builder.editor style-scheme-name)" = "candy-for-gnome-gruvbox-material-dark" ] && chk ok "light desktop: the -light id for Text Editor; Builder untouched when it is not installed" || chk fail "gsv switch light"
+# Flatpak Text Editor: the key goes into the sandbox store (right app, schema, key), read back, host dconf untouched; a mismatch warns; no flatpak does nothing there
+: > "$DCONF_DB"; : > "$FLATPAK_GS"; rm -f "$FLATPAK_GS.calls"
+out=$(FLATPAK_INFO="org.gnome.TextEditor" PATH="$T/fpbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
+[ "$(gsread org.gnome.TextEditor org.gnome.TextEditor style-scheme)" = "candy-for-gnome-gruvbox-material-dark" ] && grep -q "^run org.gnome.TextEditor set org.gnome.TextEditor style-scheme candy-for-gnome-gruvbox-material-dark" "$FLATPAK_GS.calls" && [ -z "$(dconf read /org/gnome/TextEditor/style-scheme)" ] && printf '%s\n' "$out" | grep -q "Text Editor (Flatpak) style scheme is now candy-for-gnome-gruvbox-material-dark" && ! printf '%s\n' "$out" | grep -q "Text Editor style scheme is now" && chk ok "Flatpak Text Editor: set and read back inside the sandbox (org.gnome.TextEditor style-scheme), host dconf not written" || chk fail "flatpak text editor ($out)"
+out=$(FLATPAK_GS_RO=1 FLATPAK_INFO="org.gnome.TextEditor" PATH="$T/fpbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
+printf '%s\n' "$out" | grep -q "WARNING: Text Editor (Flatpak) style scheme reads" && ! printf '%s\n' "$out" | grep -q "Text Editor (Flatpak) style scheme is now" && chk ok "a read-back that does not match warns and does not claim success" || chk fail "no mismatch warning ($out)"
+: > "$FLATPAK_GS"; rm -f "$FLATPAK_GS.calls"
+out=$(THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
+[ ! -e "$FLATPAK_GS.calls" ] && [ "$(dconf read /org/gnome/TextEditor/style-scheme)" = "'candy-for-gnome-gruvbox-material-dark'" ] && ! printf '%s\n' "$out" | grep -q "(Flatpak)" && chk ok "no Flatpak: no sandbox call, host dconf is used for Text Editor" || chk fail "no-flatpak editor ($out)"
+# GSETTINGS_BACKEND=keyfile: ignored (unset, one note, the stubs still run); unset or another value: no note
+: > "$LOG"
+out=$(GSETTINGS_BACKEND=keyfile THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
+[ "$(printf '%s\n' "$out" | grep -c 'GSETTINGS_BACKEND=keyfile ignored')" = 1 ] && grep -q "^set org.gnome.desktop.interface gtk-theme" "$LOG" && chk ok "GSETTINGS_BACKEND=keyfile is ignored with one note and the gsettings stub still runs" || chk fail "keyfile note ($out)"
+printf '#!/bin/sh\necho "backend=${GSETTINGS_BACKEND:-unset}" >> "%s.env"\ncase "$1" in get) echo "\x27prefer-dark\x27";; esac\n' "$LOG" > "$T/gsenv-gsettings"; mkdir -p "$T/gsenv"; cp "$T/gsenv-gsettings" "$T/gsenv/gsettings"; chmod +x "$T/gsenv/gsettings"; rm -f "$LOG.env"
+GSETTINGS_BACKEND=keyfile PATH="$T/gsenv:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null >/dev/null 2>&1
+[ -s "$LOG.env" ] && ! grep -qv '^backend=unset$' "$LOG.env" && chk ok "the stub gsettings sees no GSETTINGS_BACKEND when keyfile was set" || chk fail "keyfile still visible to gsettings ($(sort -u "$LOG.env" 2>&1))"
+out=$(THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1); ! printf '%s\n' "$out" | grep -q 'GSETTINGS_BACKEND' && chk ok "no note when GSETTINGS_BACKEND is unset" || chk fail "note without the variable"
+rm -f "$LOG.env"; out=$(GSETTINGS_BACKEND=dconf PATH="$T/gsenv:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
+! printf '%s\n' "$out" | grep -q 'GSETTINGS_BACKEND' && grep -q '^backend=dconf$' "$LOG.env" && chk ok "another value (dconf) is left alone: no note, passed through" || chk fail "dconf value touched"
 PATH="$lbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1 | grep -q "Builder not found" && chk ok "without Builder the skip is announced" || chk fail "no Builder note"
 echo "<!-- stale -->" >> "$GTKSOURCEVIEW_STYLES/candy-for-gnome-gruvbox-material-dark.xml"; THEMES_DEST=$PD just update-theme </dev/null >/dev/null 2>&1
 grep -q stale "$GTKSOURCEVIEW_STYLES/candy-for-gnome-gruvbox-material-dark.xml" && chk fail "update did not refresh the style scheme" || chk ok "update-theme refreshes the style schemes"
