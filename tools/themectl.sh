@@ -43,6 +43,9 @@
 # PTYXIS_PALETTES (~/.local/share/org.gnome.Ptyxis/palettes),
 # GTKSOURCEVIEW_STYLES, FLATPAK_APPS,
 # FORCE=1 (replace or remove folders that were not installed by candy-for-gnome without asking).
+# GNOME reads dconf. GSETTINGS_BACKEND=keyfile (set by the Ghostty AppImage's shells, which bundle GTK without the dconf module) would send every
+# gsettings call to a private file GNOME never reads, and make `get` answer from it: ignore that one value (others are left alone).
+if [ "${GSETTINGS_BACKEND:-}" = keyfile ]; then unset GSETTINGS_BACKEND; echo "Note: GSETTINGS_BACKEND=keyfile ignored (GNOME reads dconf)."; fi
 set -euo pipefail
 
 # the guard asks on a copy of the original stdin (fd 3): the loops below read their own input from process substitutions
@@ -672,6 +675,14 @@ gsv_remove() {
     done < <(gsv_dirs)
     return 0
 }
+gsv_flatpak() { command -v flatpak >/dev/null 2>&1 && flatpak info "$1" >/dev/null 2>&1; }   # is this app an installed Flatpak?
+gsv_set_flatpak() {   # gsv_set_flatpak APP SCHEMA KEY ID LABEL: set the key in the app's own sandbox store, report only what a read-back there shows
+    local app="$1" schema="$2" key="$3" id="$4" label="$5" got
+    flatpak run --command=gsettings "$app" set "$schema" "$key" "$id" </dev/null >/dev/null 2>&1 || true
+    got=$(flatpak run --command=gsettings "$app" get "$schema" "$key" </dev/null 2>/dev/null | tr -d "'") || got=""
+    if [ "$got" = "$id" ]; then echo "$label (Flatpak) style scheme is now $id."
+    else echo "WARNING: $label (Flatpak) style scheme reads '${got:-nothing}' after setting '$id'. Pick \"$id\" in its preferences."; fi
+}
 gsv_switch() {   # point Text Editor (and Builder when present) at the scheme's style scheme for the current light/dark mode
     local s="$1" id="" dark=1 f base
     [ -n "$(gsv_files "$s")" ] || return 0
@@ -680,11 +691,24 @@ gsv_switch() {   # point Text Editor (and Builder when present) at the scheme's 
     gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null | grep -qi dark || dark=0
     id="candy-for-gnome-$s-$base"
     if [ "$dark" = 0 ] && [ -f "$root/$s/gtksourceview/candy-for-gnome-$s-light.xml" ]; then id="candy-for-gnome-$s-light"; fi
-    command -v dconf >/dev/null 2>&1 || { echo "GtkSource style scheme installed but not applied: dconf not found. Pick \"$id\" in the editor's preferences."; return 0; }
-    dconf write /org/gnome/TextEditor/style-scheme "'$id'" && echo "Text Editor style scheme is now $id (Text Editor also recolours its window from it)."
-    if gsettings list-schemas 2>/dev/null | grep -qx org.gnome.builder.editor || { command -v flatpak >/dev/null 2>&1 && flatpak info org.gnome.Builder >/dev/null 2>&1; }; then
-        dconf write /org/gnome/builder/editor/style-scheme-name "'$id'" && echo "Builder style scheme is now $id."
-    else echo "Builder not found (no org.gnome.builder.editor schema, no Flatpak); its style scheme key was not set."; fi
+    # Flatpak editors keep their OWN settings store (no dconf socket in the sandbox): the key is set and read back inside the sandbox.
+    # The host dconf is written for an editor that is not a Flatpak, or when the host also has its schema.
+    if gsv_flatpak org.gnome.TextEditor; then gsv_set_flatpak org.gnome.TextEditor org.gnome.TextEditor style-scheme "$id" "Text Editor"; fi
+    if ! gsv_flatpak org.gnome.TextEditor || gsettings list-schemas 2>/dev/null | grep -qx org.gnome.TextEditor; then
+        if command -v dconf >/dev/null 2>&1; then
+            dconf write /org/gnome/TextEditor/style-scheme "'$id'" && echo "Text Editor style scheme is now $id (Text Editor also recolours its window from it)."
+        else echo "GtkSource style scheme installed but not applied to Text Editor: dconf not found. Pick \"$id\" in the editor's preferences."; fi
+    fi
+    local b_host=0 b_fp=0
+    gsettings list-schemas 2>/dev/null | grep -qx org.gnome.builder.editor && b_host=1
+    gsv_flatpak org.gnome.Builder && b_fp=1
+    if [ $b_fp = 1 ]; then gsv_set_flatpak org.gnome.Builder org.gnome.builder.editor style-scheme-name "$id" "Builder"; fi
+    if [ $b_host = 1 ]; then
+        if command -v dconf >/dev/null 2>&1; then dconf write /org/gnome/builder/editor/style-scheme-name "'$id'" && echo "Builder style scheme is now $id."
+        else echo "Builder style scheme not applied: dconf not found. Pick \"$id\" in Builder's preferences."; fi
+    fi
+    if [ $b_host = 0 ] && [ $b_fp = 0 ]; then echo "Builder not found (no org.gnome.builder.editor schema, no Flatpak); its style scheme key was not set."; fi
+    return 0
 }
 
 # ---- Ghostty themes (themes only; works on the config directory only, never assumes how Ghostty is installed) ----------------------
