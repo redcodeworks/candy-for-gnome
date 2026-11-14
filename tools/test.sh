@@ -481,7 +481,7 @@ PATH="$lbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null
 : > "$DCONF_DB"; : > "$FLATPAK_GS"; rm -f "$FLATPAK_GS.calls"
 out=$(FLATPAK_INFO="org.gnome.TextEditor" PATH="$T/fpbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
 [ "$(gsread org.gnome.TextEditor org.gnome.TextEditor style-scheme)" = "candy-for-gnome-gruvbox-material-dark" ] && grep -q "^run org.gnome.TextEditor set org.gnome.TextEditor style-scheme candy-for-gnome-gruvbox-material-dark" "$FLATPAK_GS.calls" && [ -z "$(dconf read /org/gnome/TextEditor/style-scheme)" ] && printf '%s\n' "$out" | grep -q "Text Editor (Flatpak) style scheme is now candy-for-gnome-gruvbox-material-dark" && ! printf '%s\n' "$out" | grep -q "Text Editor style scheme is now" && chk ok "Flatpak Text Editor: set and read back inside the sandbox (org.gnome.TextEditor style-scheme), host dconf not written" || chk fail "flatpak text editor ($out)"
-out=$(FLATPAK_GS_RO=1 FLATPAK_INFO="org.gnome.TextEditor" PATH="$T/fpbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
+: > "$FLATPAK_GS"; out=$(FLATPAK_GS_RO=1 FLATPAK_INFO="org.gnome.TextEditor" PATH="$T/fpbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
 printf '%s\n' "$out" | grep -q "WARNING: Text Editor (Flatpak) style scheme reads" && ! printf '%s\n' "$out" | grep -q "Text Editor (Flatpak) style scheme is now" && chk ok "a read-back that does not match warns and does not claim success" || chk fail "no mismatch warning ($out)"
 : > "$FLATPAK_GS"; rm -f "$FLATPAK_GS.calls"
 out=$(THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)

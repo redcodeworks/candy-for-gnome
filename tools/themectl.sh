@@ -691,10 +691,9 @@ gsv_switch() {   # point Text Editor (and Builder when present) at the scheme's 
     gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null | grep -qi dark || dark=0
     id="candy-for-gnome-$s-$base"
     if [ "$dark" = 0 ] && [ -f "$root/$s/gtksourceview/candy-for-gnome-$s-light.xml" ]; then id="candy-for-gnome-$s-light"; fi
-    local did=0
     # Flatpak editors keep their OWN settings store (no dconf socket in the sandbox): the key is set and read back inside the sandbox.
     # The host dconf is written for an editor that is not a Flatpak, or when the host also has its schema.
-    if gsv_flatpak org.gnome.TextEditor; then did=1; gsv_set_flatpak org.gnome.TextEditor org.gnome.TextEditor style-scheme "$id" "Text Editor"; fi
+    if gsv_flatpak org.gnome.TextEditor; then gsv_set_flatpak org.gnome.TextEditor org.gnome.TextEditor style-scheme "$id" "Text Editor"; fi
     if ! gsv_flatpak org.gnome.TextEditor || gsettings list-schemas 2>/dev/null | grep -qx org.gnome.TextEditor; then
         if command -v dconf >/dev/null 2>&1; then
             dconf write /org/gnome/TextEditor/style-scheme "'$id'" && echo "Text Editor style scheme is now $id (Text Editor also recolours its window from it)."
