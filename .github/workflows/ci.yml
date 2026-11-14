@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Branching (GitLab Flow): feature branches -> testing -> main.
-# Dev lane: the quick run on every push to a feature branch (any branch but main and testing), and on pull requests into testing.
-# Testing lane: a push to testing (a merged PR) runs the FULL suite. Nothing is published; main is the reviewed result.
+# Dev lane: the run on every push to a feature branch (any branch but main and testing), and on pull requests into testing.
+# Testing lane: a push to testing (a merged PR) runs the same run. Both check only the featured (starred) schemes per scheme; the manual
+# dispatch with full=true (the default) is the way to check every scheme. Nothing is published; main is the reviewed result.
 # The jobs `test` and `secrets` are the required checks on testing and main: do not rename them.
 name: ci
 
@@ -13,7 +14,7 @@ on:
   workflow_dispatch:
     inputs:
       full:
-        description: 'Full suite: regeneration, selftest and the install/switch/update/remove loop for every scheme (a dispatched run is full by default)'
+        description: 'Every per-scheme check (hygiene, regeneration, selftest, install/switch/update/remove loop) for every scheme instead of the featured ones only (a dispatched run is full by default)'
         type: boolean
         default: true
 
@@ -25,7 +26,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The required check "test": lint, hygiene, regeneration, per-scheme selftest, recipe behaviour (tools/test.sh).
+  # The required check "test": lint, recipe behaviour and, for the featured schemes, hygiene, regeneration, selftest, the install loop (tools/test.sh).
   # Runs in Fedora because the generators read the stock GTK 3, GTK 4 and GNOME Shell stylesheets from the installed
   # libraries: the committed files were generated on Fedora 45, so a Fedora 45 container reproduces them. If a stock
   # stylesheet changes upstream, the regeneration check fails: run `just generate <scheme>` and commit the result.
@@ -44,11 +45,11 @@ jobs:
       - name: Trust the workspace for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Run the test suite
-        # Cheap checks run for every scheme; the install/switch/update/remove loop runs for the featured schemes, the schemes changed
-        # against origin/main (capped at 15) and a rotating slice (the list is printed at the top of the log). A push to testing and a
-        # manual dispatch: every scheme.
+        # Every per-scheme check runs for the featured schemes only (TEST_SCOPE=featured; the list is FEATURED_THEMES in tools/themectl.sh and is printed at
+        # the top of the log); the checks that are not per scheme always run. A manual dispatch with full=true runs every scheme (TEST_ALL=1).
         env:
-          TEST_ALL: ${{ ((github.event_name == 'workflow_dispatch' && inputs.full) || (github.event_name == 'push' && github.ref == 'refs/heads/testing')) && '1' || '' }}
+          TEST_ALL: ${{ (github.event_name == 'workflow_dispatch' && inputs.full) && '1' || '' }}
+          TEST_SCOPE: featured
         run: tools/test.sh
 
   # The required check "secrets": no credentials in the history.

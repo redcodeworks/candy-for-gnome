@@ -3,11 +3,17 @@
 # Full test of the COMMITTED state of this repo (a fresh clone of HEAD, temp directories only, a stand-in gsettings,
 # a local fake icon repo): lint, hygiene, regeneration, per-scheme selftest, install/switch/update/remove for every
 # scheme and accent, and the icon recipes. Exits non-zero on any failure.
-#   tools/test.sh [--rebuild] [--all] [--sample N] [scheme ...]
-#     Hygiene, inventory and the scenario tests run for every scheme. Regeneration, selftest and the install/switch/update/remove loop (every accent)
-#     run for the featured schemes (FEATURED_THEMES in tools/themectl.sh), the schemes that differ from origin/main (TEST_BASE overrides; capped at 15)
-#     and N more (default 10) chosen from the commit hash, so every scheme is covered over time. --all runs everything for every scheme (CI: manual
-#     dispatch only). Named schemes: everything for those only.
+#   tools/test.sh [--rebuild] [--all] [--featured] [--sample N] [scheme ...]
+#     Every PER-SCHEME check (hygiene, regeneration, selftest, the GtkSource style check, ptyxis-compare, the install/switch/update/remove loop with
+#     every accent) runs for ONE scope; the checks that are not per scheme (lint, scenario tests on fixed samples or fixtures, the repo-wide
+#     inventory and asset-layout checks) always run. The scope:
+#       --featured (or TEST_SCOPE=featured; what CI passes): the featured schemes only (FEATURED_THEMES in tools/themectl.sh, the starred
+#         ones). Nothing else is checked per scheme, so a stale generated file or a broken accent of any other scheme is NOT caught.
+#       --all (or TEST_ALL=1; CI: the manual dispatch with full=true only): every scheme.
+#       named schemes: those only.
+#       none of these (a hand run): hygiene, ptyxis-compare and the style check for every scheme; regeneration, selftest and the loop for the
+#         featured schemes, the schemes that differ from origin/main (TEST_BASE overrides; capped at 15) and N more (--sample N, default 10)
+#         chosen from the commit hash.
 #     --rebuild rebuilds the test image.
 # Inside the container it needs git, just, python3 + python3-gobject, GTK 3, GTK 4, gnome-shell (St typelib) and a display
 # (tools/test-packages.txt lists them; it re-executes itself under xvfb-run when there is no display).
@@ -98,30 +104,32 @@ just --dump >/dev/null 2>&1 && chk ok "justfile parses" || chk fail "justfile pa
 want="install-icon install-theme list-icons list-themes remove-icon remove-theme switch-icon switch-theme update-icon update-theme"
 got=$(just --summary 2>/dev/null | tr ' ' '\n' | grep -v '^default$' | sort | tr '\n' ' ' | sed 's/ $//')
 [ "$got" = "$want" ] && chk ok "public recipes are exactly the ten" || chk fail "public recipes differ: $got"
-full=0; nsample=10; named=()
-while [ $# -gt 0 ]; do case "$1" in --all) full=1 ;; --sample) shift; nsample=${1:?--sample needs a number} ;; *) named+=("$1") ;; esac; shift; done
+full=0; featured_only=0; nsample=10; named=()
+while [ $# -gt 0 ]; do case "$1" in --all) full=1 ;; --featured) featured_only=1 ;; --sample) shift; nsample=${1:?--sample needs a number} ;; *) named+=("$1") ;; esac; shift; done
 if [ "${TEST_ALL:-}" = 1 ]; then full=1; fi
-# Coverage (CLAUDE.md, "CI time"): hygiene, inventory, scenario tests and ptyxis-compare always run for every scheme. Regeneration, selftest and the
-# install/switch/update/remove loop with every accent run for ONE set: the featured schemes + the schemes changed against the base (origin/main;
-# TEST_BASE overrides), capped at 15 (a deterministic hash sample above that) + a rotating slice (--sample N, default 10) chosen by hashing the
-# commit SHA, so every scheme is covered over time. --all or TEST_ALL=1 (manual CI dispatch) runs everything for every scheme.
+if [ "${TEST_SCOPE:-}" = featured ]; then featured_only=1; fi
+# Coverage (CLAUDE.md, "CI time and coverage"): see the header. `schemes` is the scope of hygiene, ptyxis-compare and the style check, `cheap_schemes` of
+# regeneration and selftest, `loop_schemes` of the install/switch/update/remove loop; `all_schemes` only feeds the fixtures and the repo-wide checks.
+all_schemes=$(ls -d */palette.toml | cut -d/ -f1)
+feat=$(sed -n 's/^FEATURED_THEMES="${FEATURED_THEMES-\(.*\)}"$/\1/p' tools/themectl.sh)
 if [ ${#named[@]} -gt 0 ]; then schemes="${named[*]}"; loop_schemes="$schemes"; cheap_schemes="$schemes"
+elif [ "$full" -eq 1 ]; then schemes="$all_schemes"; loop_schemes="$schemes"; cheap_schemes="$schemes"; echo "coverage: every scheme (--all)"
+elif [ "$featured_only" -eq 1 ]; then
+    schemes=$(for x in $feat; do [ -f "$x/palette.toml" ] && echo "$x"; done); loop_schemes="$schemes"; cheap_schemes="$schemes"
+    echo "coverage: the featured schemes only; every scheme with --all or the manual full CI run"
 else
-    schemes=$(ls -d */palette.toml | cut -d/ -f1)
-    if [ "$full" -eq 1 ]; then loop_schemes="$schemes"; cheap_schemes="$schemes"; echo "coverage: every scheme (--all)"
-    else
-        feat=$(sed -n 's/^FEATURED_THEMES="${FEATURED_THEMES-\(.*\)}"$/\1/p' tools/themectl.sh)
-        changed=$(git -C "$root" diff --name-only "${TEST_BASE:-origin/main}" HEAD 2>/dev/null | cut -d/ -f1 | sort -u | while read -r x; do [ -f "$x/palette.toml" ] && echo "$x"; done)
-        sha=$(git rev-parse HEAD)
-        pick() { for x in $schemes; do case " $feat " in *" $x "*) continue ;; esac; printf '%s %s\n' "$(printf '%s%s%s' "$1" "$sha" "$x" | sha1sum | cut -c1-12)" "$x"; done | sort | head -n "$2" | awk '{print $2}'; }
-        nchg=$(echo $changed | wc -w)
-        if [ "$nchg" -gt 15 ]; then changed=$(for x in $changed; do printf '%s %s\n' "$(printf 'chg%s%s' "$sha" "$x" | sha1sum | cut -c1-12)" "$x"; done | sort | head -n 15 | awk '{print $2}'); capped=" (a sample of 15 of $nchg changed schemes)"; else capped=""; fi
-        cheap_schemes=$(for x in $feat $changed $(pick loop "$nsample"); do [ -f "$x/palette.toml" ] && echo "$x"; done | awk '!seen[$0]++')
-        loop_schemes="$cheap_schemes"
-        echo "coverage: featured + changed$capped + rotating slice of $nsample; every scheme with --all or the manual full CI run"
-    fi
+    schemes="$all_schemes"
+    changed=$(git -C "$root" diff --name-only "${TEST_BASE:-origin/main}" HEAD 2>/dev/null | cut -d/ -f1 | sort -u | while read -r x; do [ -f "$x/palette.toml" ] && echo "$x"; done)
+    sha=$(git rev-parse HEAD)
+    pick() { for x in $schemes; do case " $feat " in *" $x "*) continue ;; esac; printf '%s %s\n' "$(printf '%s%s%s' "$1" "$sha" "$x" | sha1sum | cut -c1-12)" "$x"; done | sort | head -n "$2" | awk '{print $2}'; }
+    nchg=$(echo $changed | wc -w)
+    if [ "$nchg" -gt 15 ]; then changed=$(for x in $changed; do printf '%s %s\n' "$(printf 'chg%s%s' "$sha" "$x" | sha1sum | cut -c1-12)" "$x"; done | sort | head -n 15 | awk '{print $2}'); capped=" (a sample of 15 of $nchg changed schemes)"; else capped=""; fi
+    cheap_schemes=$(for x in $feat $changed $(pick loop "$nsample"); do [ -f "$x/palette.toml" ] && echo "$x"; done | awk '!seen[$0]++')
+    loop_schemes="$cheap_schemes"
+    echo "coverage: featured + changed$capped + rotating slice of $nsample; every scheme with --all or the manual full CI run"
 fi
-echo "regeneration, selftest and the install/switch/update/remove loop run for $(echo $loop_schemes | wc -w) of $(echo $schemes | wc -w) schemes: $(echo $loop_schemes)"
+export SCHEMES="$schemes"
+echo "regeneration, selftest and the install/switch/update/remove loop run for $(echo $loop_schemes | wc -w) of $(echo $all_schemes | wc -w) schemes: $(echo $loop_schemes)"
 for s in $schemes; do
     for d in $s/themes/*/; do [ -f "$d/LICENSE" ] && chk ok "$d has a LICENSE" || chk fail "$d has no LICENSE"; done
     while IFS= read -r f; do head -12 "$f" | grep -q "Licen[cs]e" && chk ok "licence line in $f" || chk fail "no licence line in header of $f"; done < <(find "$s/themes" -name '*.css' -not -path '*/assets/*' -not -name 'pad-osd.css')
@@ -174,7 +182,7 @@ python3 -I tools/assets-gen.py --check >/dev/null 2>&1 && chk ok "assets/ match 
 # ---- every scheme: Ptyxis declarations and the inventory (tools/ptyxis-schemes.tsv) ----------------------------------------
 echo "=== ptyxis-compare and inventory"
 if [ ! -r "${PTYXIS_BIN:-/usr/bin/ptyxis}" ]; then echo "  SKIP ptyxis-compare --check (no Ptyxis binary here; run it locally)"
-elif python3 -I tools/ptyxis-compare.py --check $schemes >/dev/null 2>&1; then chk ok "ptyxis-compare --check passes for every scheme"
+elif python3 -I tools/ptyxis-compare.py --check $schemes >/dev/null 2>&1; then chk ok "ptyxis-compare --check passes for the schemes in scope"
 else chk fail "ptyxis-compare --check failed ($(python3 -I tools/ptyxis-compare.py --check $schemes 2>&1 | grep -iv '^info' | head -3 | tr '\n' ' '))"
 fi
 inv=$(python3 -I - <<'PY'
@@ -350,7 +358,7 @@ rm -rf "$GCFG" "$T/gdata" "$GH" "$T/cfg-legacy"
 
 # ---- Shell theme without the extension's gsettings schema (it is per user: gsettings does not list it) -----------------------
 echo "=== shell theme via dconf"
-first=$(echo $schemes | awk '{print $1}')
+first=$(echo ${named[*]:-$all_schemes} | awk '{print $1}')
 mkdir -p "$T/bin2"; DLOG="$T/dconf.log"; : > "$DLOG"
 printf '#!/bin/sh\ncase "$1" in set) echo "set $2 $3 $4" >> "%s" ;; get) echo "\x27prefer-dark\x27" ;; list-schemas) : ;; esac\n' "$LOG" > "$T/bin2/gsettings"
 printf '#!/bin/sh\n[ "$1" = write ] && echo "write $2 $3" >> "%s"\n' "$DLOG" > "$T/bin2/dconf"
@@ -361,7 +369,7 @@ grep -q "write /org/gnome/shell/extensions/user-theme/name" "$DLOG" && chk ok "s
 
 # ---- libadwaita file: no confirmation for our own files or when the backup of the original already exists ---------------------
 echo "=== libadwaita file replacement"
-first=$(echo $schemes | awk '{print $1}'); D="$T/themes-la"; CFGLA="$T/cfg-la"; mkdir -p "$CFGLA/gtk-4.0"; accs=$(grep -v '^#' "$first/accents/list" | awk 'NF {print $1}')
+first=$(echo ${named[*]:-$all_schemes} | awk '{print $1}'); D="$T/themes-la"; CFGLA="$T/cfg-la"; mkdir -p "$CFGLA/gtk-4.0"; accs=$(grep -v '^#' "$first/accents/list" | awk 'NF {print $1}')
 a1=$(echo "$accs" | sed -n 1p); a2=$(echo "$accs" | sed -n 2p)
 THEMES_DEST=$D just install-theme "$first" >/dev/null 2>&1
 sw() { XDG_CONFIG_HOME="$CFGLA" THEMES_DEST=$D just switch-theme "$first" "$1" 2>&1 </dev/null; }
@@ -426,7 +434,7 @@ cat > "$T/gsvcheck.py" <<'PY'
 import sys, re, glob, os, xml.etree.ElementTree as ET
 sys.path.insert(0, 'tools'); import schemeroles as sr
 bad = []
-for f in sorted(glob.glob('*/gtksourceview/*.xml')):
+for f in sorted(f for s in os.environ['SCHEMES'].split() for f in glob.glob(s + '/gtksourceview/*.xml')):
     scheme = f.split('/')[0]
     try: root = ET.parse(f).getroot()
     except ET.ParseError as e: bad.append('%s: %s' % (f, e)); continue
@@ -458,8 +466,8 @@ out=$(python3 -I "$T/gsvcheck.py" 2>&1) && chk ok "style schemes: XML parses, id
 if python3 -c "import gi; gi.require_version('GtkSource','5')" 2>/dev/null; then
     out=$(python3 -I - <<'PY' 2>&1
 import gi, glob, os; gi.require_version('GtkSource', '5'); from gi.repository import GtkSource
-m = GtkSource.StyleSchemeManager.new(); m.set_search_path([os.path.abspath(d) for d in glob.glob('*/gtksourceview')])
-miss = [os.path.basename(f)[:-4] for f in glob.glob('*/gtksourceview/*.xml') if not m.get_scheme(os.path.basename(f)[:-4])]
+m = GtkSource.StyleSchemeManager.new(); m.set_search_path([os.path.abspath(s + '/gtksourceview') for s in os.environ['SCHEMES'].split()])
+miss = [os.path.basename(f)[:-4] for f in (f for s in os.environ['SCHEMES'].split() for f in glob.glob(s + '/gtksourceview/*.xml')) if not m.get_scheme(os.path.basename(f)[:-4])]
 print(miss); raise SystemExit(1 if miss else 0)
 PY
 ) && chk ok "GtkSourceView itself loads every generated style scheme" || { chk fail "GtkSourceView could not load: $out"; }
