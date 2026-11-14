@@ -569,7 +569,10 @@ choose_one() {
 }
 
 # ---- Ptyxis palettes (themes only) ----------------------------------------------------------------------------
-pty_ours() { [ -f "$2" ] && { grep -qxF "# candy-for-gnome: $1" "$2" || grep -qxF "<!-- candy-for-gnome: $1 -->" "$2"; }; }   # pty_ours SCHEME FILE (palette or style scheme marker)
+pty_ours() {   # pty_ours SCHEME FILE (palette, style scheme or app theme: the # // or XML marker; a directory = its flavor.toml)
+    local f="$2"; [ -d "$f" ] && f="$f/flavor.toml"
+    [ -f "$f" ] && { grep -qxF "# candy-for-gnome: $1" "$f" || grep -qxF "<!-- candy-for-gnome: $1 -->" "$f" || grep -qxF "// candy-for-gnome: $1" "$f"; }
+}
 # pty_may_touch SCHEME VERB FILE: 0 when the palette file is absent, ours, FORCE=1 or the user says yes in a terminal (same rules as folders)
 pty_may_touch() {
     local d a; d="$3"
@@ -793,6 +796,10 @@ gh_status() {    # a line for list-themes, only when the Ghostty config director
     echo "Ghostty ($gh_dir): theme $t; include line: $([ -n "$conf" ] && gh_line_in "$conf" && echo present || echo "not in the config")"
 }
 
+# Per-application themes (Alacritty, Helix, Yazi, kitty, bat, eza, zellij, Claude Code): tools/apps.sh
+# shellcheck source=tools/apps.sh
+. "$root/tools/apps.sh"
+
 # ---- Flatpak access (themes and icons: grant after switch-theme, undo after the last removal) -------------------
 # shellcheck disable=SC2088  # the tilde is literal on purpose: flatpak stores and shows the entry as ~/.themes
 fp_paths=(xdg-config/gtk-3.0:ro xdg-config/gtk-4.0:ro xdg-data/icons:ro '~/.themes:ro')   # literal tilde, as flatpak stores it; the only entries candy-for-gnome ever manages
@@ -908,7 +915,7 @@ case "$action" in
             ac=""; if [ "$kind" = themes ]; then ac="  [accent: $(current_accent "${items[i]}")]"; fi
             if is_installed "${items[i]}"; then echo "✓ ${labels[i]}$ac"; else echo "  ${labels[i]}"; fi
         done
-        if [ "$kind" = themes ]; then gh_status; fi ;;
+        if [ "$kind" = themes ]; then gh_status; apps_status; fi ;;
 
     install)
         just_installed=()
@@ -932,7 +939,7 @@ case "$action" in
         for nm in "${names[@]}"; do
             if [ "$kind" = icons ] && [ ! -d "$(clone_of "${i_src[$nm]}")/.git" ]; then echo "Skipping $nm: its source ${i_src[$nm]} is not available." >&2; continue; fi
             before=$installed_n; copy_item "$nm"; if [ "$installed_n" -gt "$before" ]; then just_installed+=("$nm"); fi
-            if [ "$kind" = themes ]; then pty_cleanup; gsv_install "$nm"; gh_install "$nm"; fi; done
+            if [ "$kind" = themes ]; then pty_cleanup; gsv_install "$nm"; gh_install "$nm"; app_install "$nm"; fi; done
         if [ "$installed_n" -eq 0 ]; then echo "Nothing was installed (see the messages above)."
         else
             if [ "$kind" = themes ]; then echo "Next: run switch-theme to use it."; else echo "Next: run switch-icon to use it."; fi
@@ -948,7 +955,7 @@ case "$action" in
         for nm in "${inst[@]}"; do
             if [ "$kind" = icons ] && [ ! -d "$(clone_of "${i_src[$nm]}")/.git" ]; then echo "Skipping $nm: its source ${i_src[$nm]} is not available." >&2; continue; fi
             if [ "$kind" = icons ]; then copy_item "$nm"; n=$((n+1))
-            else while read -r f; do if [ -e "$dest/$f" ] && copy_folder "$f" "$nm"; then n=$((n+1)); fi; done < <(folders_of "$nm"); pty_cleanup; gsv_refresh "$nm"; gh_refresh "$nm"; fi
+            else while read -r f; do if [ -e "$dest/$f" ] && copy_folder "$f" "$nm"; then n=$((n+1)); fi; done < <(folders_of "$nm"); pty_cleanup; gsv_refresh "$nm"; gh_refresh "$nm"; app_refresh "$nm"; fi
         done
         [ "$n" -gt 0 ] || echo "None of the ${noun}s from this source is installed in $dest." ;;
 
@@ -975,7 +982,7 @@ case "$action" in
                 fi
             done < <(folders_of "${items[i]}")
             if [ "$kind" = themes ] && ! is_installed "${items[i]}"; then state_del "$state/accents" "${items[i]}"; fi
-            if [ "$kind" = themes ]; then pty_cleanup; gsv_remove "${items[i]}"; gh_remove "${items[i]}"; fi
+            if [ "$kind" = themes ]; then pty_cleanup; gsv_remove "${items[i]}"; gh_remove "${items[i]}"; app_remove "${items[i]}"; fi
         done
         # shared hidden base dirs (Fluent): remove one only when no remaining installed set links into it
         if [ "$kind" = icons ]; then
@@ -1004,7 +1011,7 @@ case "$action" in
                 accent_pick="$accent_arg"
             else choose_accent "${items[i]}"; fi
             if [ -n "$accent_pick" ]; then state_set "$state/accents" "${items[i]}" "$accent_pick"; fi
-            copy_item "${items[i]}"; pty_cleanup; gsv_install "${items[i]}"; gh_install "${items[i]}"
+            copy_item "${items[i]}"; pty_cleanup; gsv_install "${items[i]}"; gh_install "${items[i]}"; app_install "${items[i]}"
             [ -z "$accent_pick" ] || echo "Accent: $accent_pick."
         fi
         set_ini() {  # set_ini KEY VALUE: rewrite the key in the GTK settings.ini files that already have it
@@ -1075,7 +1082,7 @@ case "$action" in
                 else echo "$target differs from the scheme's libadwaita file; left alone (run in a terminal to replace it)."
                 fi
             fi
-            pty_cleanup; pty_switch "$sc"; gsv_switch "$sc"; gh_switch "$sc"; fp_check
+            pty_cleanup; pty_switch "$sc"; gsv_switch "$sc"; gh_switch "$sc"; app_switch "$sc"; fp_check
             echo "Restart GTK apps to pick up the new theme."
         fi ;;
 
