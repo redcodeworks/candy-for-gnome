@@ -60,7 +60,7 @@ candy-for-gnome: themes and icon sets (just <recipe>; behind the image: ujust gn
   update-theme                   pull this checkout when it has a remote, then replace every installed theme and re-apply its accent
   remove-theme [name]            remove an installed theme (checklist without a name); folders candy-for-gnome did not install are not touched
   switch-theme [name] [accent]   make a theme the GTK, Shell and libadwaita theme and select the matching Ptyxis palette, Text Editor
-                                 style and (when ~/.config/ghostty exists) Ghostty theme; the accent is one of the theme's own colors (asked when omitted)
+                                 style, (when ~/.config/ghostty exists) the Ghostty theme and the themes of installed Alacritty, Helix, Yazi, kitty, bat, eza, zellij and Claude Code (tools/apps.sh); the accent is one of the theme's own colors (asked when omitted)
   install-icon [name]            install an icon set from its source repo (cloned into ~/.cache/candy-for-gnome) into ~/.local/share/icons
   update-icon, remove-icon [name], switch-icon [name]   as for themes
 

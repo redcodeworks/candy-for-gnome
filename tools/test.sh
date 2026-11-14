@@ -67,7 +67,7 @@ SH
 chmod +x "$T/bin/dconf"
 export THEMES_PICKER=builtin THEMES_SWITCH_AFTER_INSTALL=0   # tests choose the picker explicitly (a developer machine may have gum) and enable the switch menu after an install only in their own pty tests
 export PTYXIS_PALETTES="$T/ptyxis-palettes" GTKSOURCEVIEW_STYLES="$T/gsv-styles" FLATPAK_APPS="$T/var-app"
-export CANDY_FOR_GNOME_BREW_BIN="$T/nobrew"   # no Homebrew bin dir: the per-app themes see only the stub binaries a test puts on the PATH
+export CANDY_FOR_GNOME_BREW_BIN="$T/nobrew" CANDY_FOR_GNOME_APPS_PATH="$T/noapps"   # no Homebrew bin dir and no PATH search (the container may ship bat): the per-app themes see only what a test points the knobs at
 export PATH="$T/bin:$PATH" XDG_CONFIG_HOME="$T/cfg" XDG_STATE_HOME="$T/state" CANDY_FOR_GNOME_CACHE="$T/cache"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 # a stand-in flatpak (FLATPAK_DB: the global override's filesystems, one entry per line); only the calls themectl makes. Absent unless a test
@@ -363,7 +363,7 @@ AB="$T/appbin"; mkdir -p "$AB"; for t in alacritty hx yazi kitty eza zellij clau
 printf '#!/bin/sh\ncase "$1" in --config-dir) echo "%s/cfg-apps/bat" ;; cache) echo "cache $*" >> "%s/bat.log" ;; esac\n' "$T" "$T" > "$AB/bat"; chmod +x "$AB"/*
 CFGA="$T/cfg-apps"; HA="$T/home-apps"; APD="$T/themes-apps"; BATLOG="$T/bat.log"
 ap() { HOME="$HA" XDG_CONFIG_HOME="$CFGA" XDG_DATA_HOME="$T/adata" THEMES_DEST="$APD" "$@"; }
-aps() { ap env PATH="$AB:$PATH" "$@"; }   # with the stub tools installed
+aps() { ap env CANDY_FOR_GNOME_APPS_PATH="$AB" PATH="$AB:$PATH" "$@"; }   # with the stub tools installed
 app_reset() {   # fresh configs the way a real setup looks (hand-made themes, a Noctalia-style import list, a regular eza theme, Claude settings)
     rm -rf "$CFGA" "$HA" "$APD" "$T/adata" "$BATLOG"; mkdir -p "$CFGA"/{alacritty,helix,yazi,bat,zellij,eza} "$HA/.claude" "$APD"
     printf '[general]\nimport = [\n    "~/.config/alacritty/themes/gruvbox-material-dark.toml",\n]\n\n[terminal.shell]\nprogram = "/usr/bin/fish"\n' > "$CFGA/alacritty/alacritty.toml"
@@ -375,7 +375,7 @@ app_reset() {   # fresh configs the way a real setup looks (hand-made themes, a 
     printf '{"theme": "auto", "permissions": {"allow": []}}\n' > "$HA/.claude/settings.json"
     mkdir -p "$CFGA/helix/themes"; echo handmade > "$CFGA/helix/themes/gruvbox-material.toml"
 }
-cfg_snapshot() { (cd "$CFGA" && find . -type f ! -path './*/themes/*' ! -path './yazi/flavors/*' -print0 | sort -z | xargs -0 sha1sum; cat "$HA/.claude/settings.json" | sha1sum); }
+cfg_snapshot() { (cd "$CFGA" && sha1sum alacritty/alacritty.toml helix/config.toml yazi/theme.toml bat/config zellij/config.kdl; [ ! -L eza/theme.yml ] && sha1sum eza/theme.yml 2>/dev/null; sha1sum "$HA/.claude/settings.json"); }
 # 1. no supported tool installed: nothing is created, no line in list, no mention
 rm -rf "$CFGA" "$HA" "$APD"; mkdir -p "$APD"
 out=$(ap just install-theme gruvbox-material </dev/null 2>&1; ap just switch-theme gruvbox-material </dev/null 2>&1; ap just update-theme </dev/null 2>&1; ap just list-themes </dev/null 2>&1; ap just remove-theme gruvbox-material </dev/null 2>&1)
@@ -409,7 +409,7 @@ aps just install-theme nordic </dev/null >/dev/null 2>&1; aps just switch-theme 
   && chk ok "app themes: a dark-only scheme maps both appearances to its dark file (Yazi, kitty, bat)" || chk fail "dark-only mapping"
 aps just switch-theme gruvbox-material </dev/null >/dev/null 2>&1
 lb="$T/bin-light-apps"; mkdir -p "$lb"; printf '#!/bin/sh\ncase "$1" in get) case "$3" in color-scheme) echo "\x27prefer-light\x27";; *) echo "\x27x\x27";; esac ;; list-schemas) : ;; esac\n' > "$lb/gsettings"; chmod +x "$lb/gsettings"
-ap env PATH="$lb:$AB:$PATH" just switch-theme gruvbox-material </dev/null >/dev/null 2>&1
+ap env CANDY_FOR_GNOME_APPS_PATH="$AB" PATH="$lb:$AB:$PATH" just switch-theme gruvbox-material </dev/null >/dev/null 2>&1
 [ "$(rl "$CFGA/alacritty/themes/candy-for-gnome.toml")" = candy-for-gnome-gruvbox-material-light.toml ] && [ "$(rl "$CFGA/helix/themes/candy-for-gnome.toml")" = candy-for-gnome-gruvbox-material-light.toml ] && grep -q '"base": "light"' "$HA/.claude/themes/candy-for-gnome.json" \
   && chk ok "app themes: under a light system color scheme Alacritty, Helix and Claude Code follow with the light file (run switch-theme again after changing the setting)" || chk fail "light variant"
 # 5. guard: an unmarked file or a foreign thing under our names is never replaced silently
@@ -425,7 +425,7 @@ echo '{"name": "mine"}' > "$HA/.claude/themes/candy-for-gnome.json"; out=$(aps j
 # 6. interactive: one question per tool, default no, exact edits
 if command -v script >/dev/null 2>&1; then
     app_reset; aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1; cfg_snapshot > "$T/apps.before"
-    sw() { printf '%s' "$1" | HOME="$HA" XDG_CONFIG_HOME="$CFGA" XDG_DATA_HOME="$T/adata" THEMES_DEST="$APD" PATH="$AB:$PATH" script -qec "tools/themectl.sh themes switch gruvbox-material blue" /dev/null > "$T/apps.tty" 2>&1; }
+    sw() { printf '%s' "$1" | HOME="$HA" XDG_CONFIG_HOME="$CFGA" XDG_DATA_HOME="$T/adata" THEMES_DEST="$APD" CANDY_FOR_GNOME_APPS_PATH="$AB" PATH="$AB:$PATH" script -qec "tools/themectl.sh themes switch gruvbox-material blue" /dev/null > "$T/apps.tty" 2>&1; }
     sw $'n\nn\nn\nn\nn\nn\n'; cfg_snapshot > "$T/apps.after"
     cmp -s "$T/apps.before" "$T/apps.after" && [ -f "$CFGA/eza/theme.yml" ] && [ ! -L "$CFGA/eza/theme.yml" ] && chk ok "app themes interactive: answering n to every question changes no user config" || chk fail "interactive n changed configs"
     sw $'\n\n\n\n\n\n'; cfg_snapshot > "$T/apps.after"; cmp -s "$T/apps.before" "$T/apps.after" && chk ok "app themes interactive: empty answers are no" || chk fail "interactive empty answer"

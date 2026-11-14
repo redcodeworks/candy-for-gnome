@@ -1,4 +1,6 @@
 # SPDX-License-Identifier: MIT
+# shellcheck shell=bash
+# shellcheck disable=SC2154  # root, cfg, tty_in and the pty_* helpers come from themectl.sh, which sources this file
 # Per-application themes for themectl.sh (sourced, not run): Alacritty, Helix, Yazi, kitty, bat, eza, zellij and Claude Code.
 # The prebuilt files live in <scheme>/<app>/ (tools/<app>-gen.py); this file installs, refreshes and removes them, and `switch-theme` points each tool at the scheme.
 # The rules, the same for every app:
@@ -15,7 +17,14 @@
 app_names=(alacritty helix yazi kitty bat eza zellij claude)
 app_brew="${CANDY_FOR_GNOME_BREW_BIN:-/home/linuxbrew/.linuxbrew/bin}"
 app_exe() { case "$1" in helix) echo hx ;; *) echo "$1" ;; esac; }
-app_bin() { local e p; e=$(app_exe "$1"); if p=$(command -v "$e" 2>/dev/null); then echo "$p"; return 0; fi; [ -x "$app_brew/$e" ] && { echo "$app_brew/$e"; return 0; }; return 1; }
+app_bin() {   # the path of an app's binary: on PATH (CANDY_FOR_GNOME_APPS_PATH, a test knob, replaces the PATH search), else in the Homebrew bin dir
+    local e p d; e=$(app_exe "$1")
+    if [ -n "${CANDY_FOR_GNOME_APPS_PATH+x}" ]; then
+        local IFS=:; for d in $CANDY_FOR_GNOME_APPS_PATH; do [ -x "$d/$e" ] && { echo "$d/$e"; return 0; }; done
+    elif p=$(command -v "$e" 2>/dev/null); then echo "$p"; return 0; fi
+    [ -x "$app_brew/$e" ] && { echo "$app_brew/$e"; return 0; }
+    return 1
+}
 app_present() { app_bin "$1" >/dev/null; }
 app_dir() {   # the config directory of an app
     case "$1" in
@@ -173,23 +182,23 @@ hx_edit() {       # replace the top-level theme = line, or add one at the top of
     else { echo 'theme = "candy-for-gnome"'; cat "$f"; } > "$f.candy-tmp"; fi
     app_write "$f" "$f.candy-tmp"
 }
-yz_edit() {       # set dark and light inside the [flavor] table (replace the two keys, add the missing ones right after the header), or add the table at the top
+yz_edit() {       # set dark and light inside the [flavor] table (replace in place; a missing key goes next to the other, or right after the header), or add the table at the top
     local f="$1"
     if ! grep -qE '^[[:space:]]*\[flavor\][[:space:]]*(#.*)?$' "$f"; then { printf '[flavor]\ndark = "candy-for-gnome-dark"\nlight = "candy-for-gnome-light"\n\n'; cat "$f"; } > "$f.candy-tmp"
     else
         awk '
             { L[NR] = $0 }
             END {
+                DK = "dark = \"candy-for-gnome-dark\""; LT = "light = \"candy-for-gnome-light\""
                 for (i = 1; i <= NR; i++) if (L[i] ~ /^[ \t]*\[flavor\][ \t]*(#.*)?$/) { st = i; break }
                 for (e = st + 1; e <= NR; e++) if (L[e] ~ /^[ \t]*\[/) break
-                for (i = st + 1; i < e; i++) {
-                    if (L[i] ~ /^[ \t]*dark[ \t]*=/) { L[i] = "dark = \"candy-for-gnome-dark\""; d = 1 }
-                    if (L[i] ~ /^[ \t]*light[ \t]*=/) { L[i] = "light = \"candy-for-gnome-light\""; l = 1 }
+                for (i = st + 1; i < e; i++) { if (L[i] ~ /^[ \t]*dark[ \t]*=/) d = 1; if (L[i] ~ /^[ \t]*light[ \t]*=/) l = 1 }
+                for (i = 1; i <= NR; i++) {
+                    if (i > st && i < e && L[i] ~ /^[ \t]*dark[ \t]*=/) { print DK; if (!l) { print LT; l = 2 }; continue }
+                    if (i > st && i < e && L[i] ~ /^[ \t]*light[ \t]*=/) { if (!d) print DK; print LT; continue }
+                    print L[i]
+                    if (i == st && !d && !l) { print DK; print LT }
                 }
-                for (i = 1; i <= st; i++) print L[i]
-                if (!d) print "dark = \"candy-for-gnome-dark\""
-                if (!l) print "light = \"candy-for-gnome-light\""
-                for (i = st + 1; i <= NR; i++) print L[i]
             }' "$f" > "$f.candy-tmp"
     fi
     app_write "$f" "$f.candy-tmp"
