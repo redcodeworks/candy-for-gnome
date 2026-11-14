@@ -82,6 +82,14 @@ generate theme="all":
         python3 -I tools/accent-maps-gen.py "$s" "$acc"
         python3 -I tools/gtksourceview-gen.py "$s"
         python3 -I tools/ghostty-gen.py "$s"
+        python3 -I tools/alacritty-gen.py "$s" >/dev/null
+        python3 -I tools/helix-gen.py "$s" >/dev/null
+        python3 -I tools/yazi-gen.py "$s" >/dev/null
+        python3 -I tools/kitty-gen.py "$s" >/dev/null
+        python3 -I tools/bat-gen.py "$s" >/dev/null
+        python3 -I tools/eza-gen.py "$s" >/dev/null
+        python3 -I tools/zellij-gen.py "$s" >/dev/null
+        python3 -I tools/claude-gen.py "$s" >/dev/null
         rm -rf "$acc"
     done
 
