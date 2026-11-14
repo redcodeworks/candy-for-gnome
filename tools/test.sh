@@ -272,6 +272,75 @@ if command -v script >/dev/null 2>&1; then
     [ ! -e "$I/Dracula/mine.txt" ] && chk ok "interactive: answer y replaces it" || chk fail "interactive y did not replace"
 else echo "  skip interactive guard tests (script not installed)"; fi
 
+# ---- Ghostty themes: generated colours = Ptyxis colours, drift check, install/switch/remove on the config directory ---------------
+echo "=== ghostty themes"
+cat > "$T/ghcheck.py" <<'PY'
+import sys, re, os
+sys.path.insert(0, 'tools'); import schemeroles as sr
+bad = []
+def pal(path):
+    t = open(path).read(); g = lambda k: re.search(r'^%s = (#[0-9a-f]{6})$' % k, t, re.M).group(1)
+    return g('background'), g('foreground'), [re.search(r'^palette = %d=(#[0-9a-f]{6})$' % i, t, re.M).group(1) for i in range(16)]
+for s in ('gruvbox-material', 'dracula', 'nordic', 'solarized'):
+    S, roles, _ = sr.load(s)
+    for v in ('dark', 'light'):
+        f = '%s/ghostty/candy-for-gnome-%s-%s' % (s, s, v)
+        if v not in roles:
+            if os.path.exists(f): bad.append('%s has a %s file but no %s variant' % (s, v, v))
+            continue
+        c = sr.slot_colors(S, roles, v)
+        for k, n in S[v].get('nudge', {}).items(): c[k] = n['from'].upper()   # the terminal shows the built-in, a nudge only moves the toolkit colour
+        bg, fg, p = pal(f)
+        if bg != c['Background'].lower() or fg != c['Foreground'].lower() or p != [c['Color%d' % i].lower() for i in range(16)]: bad.append('%s %s differs from the Ptyxis-derived colours' % (s, v))
+        if not open(f).read().startswith('# candy-for-gnome: %s\n' % s): bad.append(f + ': marker')
+S, roles, _ = sr.load('solarized')
+if pal('solarized/ghostty/candy-for-gnome-solarized-dark')[1] != '#839496' or roles['dark']['fg'].lower() == '#839496': bad.append('solarized dark: nudge not reverted to the built-in foreground')
+if open('nordic/ghostty/nordic.conf').read().split('\n')[1] != 'theme = dark:candy-for-gnome-nordic-dark,light:candy-for-gnome-nordic-dark': bad.append('nordic.conf (dark-only) pair line')
+if open('dracula/ghostty/dracula.conf').read().split('\n')[1] != 'theme = dark:candy-for-gnome-dracula-dark,light:candy-for-gnome-dracula-light': bad.append('dracula.conf pair line')
+print('\n'.join(bad)); sys.exit(1 if bad else 0)
+PY
+out=$(python3 -I "$T/ghcheck.py" 2>&1) && chk ok "ghostty: generated files match the Ptyxis-derived colours (dark, light, dark-only, nudged Solarized), markers, pair lines" || chk fail "ghostty generation: $out"
+rm -rf "$T/drift"; mkdir -p "$T/drift"; cp -r tools nordic "$T/drift/"; echo '# stale' >> "$T/drift/nordic/ghostty/candy-for-gnome-nordic-dark"
+python3 -I "$T/drift/tools/selftest.py" nordic ghostty >/dev/null 2>&1 && chk fail "ghostty drift: a stale generated file passed the selftest" || chk ok "ghostty drift: a stale generated file fails the selftest"
+GH="$T/ghtest"; rm -rf "$GH" "$T/gdata"; mkdir -p "$GH"; GCFG="$T/cfg/ghostty"; rm -rf "$GCFG"
+gt() { XDG_DATA_HOME="$T/gdata" THEMES_DEST="$GH" "$@"; }
+out=$(gt just install-theme nordic </dev/null 2>&1; gt just switch-theme nordic </dev/null 2>&1; gt just list-themes </dev/null 2>&1)
+[ ! -e "$GCFG" ] && [ ! -e "$T/gdata/candy-for-gnome" ] && ! printf '%s\n' "$out" | grep -q '^Ghostty (' && printf '%s\n' "$out" | grep -q "Ghostty: no config directory" && chk ok "ghostty: no config directory, nothing created, no status line, one note" || chk fail "ghostty: missing config directory not handled"
+gt just remove-theme nordic </dev/null >/dev/null 2>&1
+mkdir -p "$GCFG/themes"; printf 'font-size = 12\ntheme = something\n' > "$GCFG/config.ghostty"; cp "$GCFG/config.ghostty" "$T/gh-config.orig"
+echo mine > "$GCFG/themes/candy-for-gnome-nordic-dark"; echo handmade > "$GCFG/themes/gruvbox-material-dark"
+out=$(gt just install-theme nordic </dev/null 2>&1)
+[ "$(cat "$GCFG/themes/candy-for-gnome-nordic-dark")" = mine ] && printf '%s\n' "$out" | grep -q "Refused: .*candy-for-gnome-nordic-dark" && chk ok "ghostty: an unmarked theme file of our name is left alone (refusal message)" || chk fail "ghostty: unmarked file replaced or no refusal"
+FORCE=1 gt just install-theme nordic </dev/null >/dev/null 2>&1
+head -1 "$GCFG/themes/candy-for-gnome-nordic-dark" | grep -qx '# candy-for-gnome: nordic' && [ -f "$T/gdata/candy-for-gnome/ghostty/nordic.conf" ] && [ "$(cat "$GCFG/themes/gruvbox-material-dark")" = handmade ] && chk ok "ghostty: install writes theme file and pair file; other hand-made themes untouched" || chk fail "ghostty install"
+out=$(gt just switch-theme nordic </dev/null 2>&1)
+[ -L "$GCFG/candy-for-gnome.conf" ] && [ "$(readlink "$GCFG/candy-for-gnome.conf")" = "$T/gdata/candy-for-gnome/ghostty/nordic.conf" ] && cmp -s "$GCFG/config.ghostty" "$T/gh-config.orig" \
+  && printf '%s\n' "$out" | grep -qxF '  config-file = ?candy-for-gnome.conf' && printf '%s\n' "$out" | grep -q 'ctrl+shift+,' && chk ok "ghostty: switch links the pair file; without a terminal it prints the include line and the reload key and edits nothing" || chk fail "ghostty switch without a terminal"
+gt just list-themes </dev/null 2>&1 | grep -q "^Ghostty (.*theme nordic; include line: not in the config" && chk ok "ghostty: list shows the status line when the directory exists" || chk fail "ghostty status line"
+# a regular file (or foreign link) with our link name is never replaced silently
+rm "$GCFG/candy-for-gnome.conf"; echo mine > "$GCFG/candy-for-gnome.conf"
+out=$(gt just switch-theme nordic </dev/null 2>&1)
+[ ! -L "$GCFG/candy-for-gnome.conf" ] && [ "$(cat "$GCFG/candy-for-gnome.conf")" = mine ] && printf '%s\n' "$out" | grep -q "Refused: .*candy-for-gnome.conf" && chk ok "ghostty: a regular file with the link name is left alone without a terminal" || chk fail "ghostty: regular file replaced"
+if command -v script >/dev/null 2>&1; then
+    printf 'n\n' | XDG_DATA_HOME="$T/gdata" script -qec "THEMES_DEST=$GH tools/themectl.sh themes switch nordic cyan" /dev/null >/dev/null 2>&1
+    [ "$(cat "$GCFG/candy-for-gnome.conf")" = mine ] && chk ok "ghostty interactive: answer n keeps the regular file" || chk fail "ghostty interactive n replaced the file"
+    printf 'y\nn\n' | XDG_DATA_HOME="$T/gdata" script -qec "THEMES_DEST=$GH tools/themectl.sh themes switch nordic cyan" /dev/null >/dev/null 2>&1
+    [ -L "$GCFG/candy-for-gnome.conf" ] && cmp -s "$GCFG/config.ghostty" "$T/gh-config.orig" && chk ok "ghostty interactive: y replaces the file; the include question defaults/answers no and leaves the config alone" || chk fail "ghostty interactive replace"
+    printf '\n' | XDG_DATA_HOME="$T/gdata" script -qec "THEMES_DEST=$GH tools/themectl.sh themes switch nordic cyan" /dev/null >/dev/null 2>&1
+    cmp -s "$GCFG/config.ghostty" "$T/gh-config.orig" && chk ok "ghostty interactive: an empty answer is no" || chk fail "ghostty: empty answer changed the config"
+    printf 'y\n' | XDG_DATA_HOME="$T/gdata" script -qec "THEMES_DEST=$GH tools/themectl.sh themes switch nordic cyan" /dev/null >/dev/null 2>&1
+    [ "$(grep -cxF 'config-file = ?candy-for-gnome.conf' "$GCFG/config.ghostty")" = 1 ] && [ "$(head -2 "$GCFG/config.ghostty")" = "$(cat "$T/gh-config.orig")" ] && chk ok "ghostty interactive: y appends exactly the one line, nothing else changes" || chk fail "ghostty: include line not appended as specified"
+    out=$(printf 'y\n' | XDG_DATA_HOME="$T/gdata" script -qec "THEMES_DEST=$GH tools/themectl.sh themes switch nordic cyan" /dev/null 2>&1)
+    [ "$(grep -cxF 'config-file = ?candy-for-gnome.conf' "$GCFG/config.ghostty")" = 1 ] && ! printf '%s\n' "$out" | grep -q 'Add the line' && chk ok "ghostty: no second question once the line is there" || chk fail "ghostty: asked again or duplicated the line"
+    LG="$T/cfg-legacy"; rm -rf "$LG"; mkdir -p "$LG/ghostty"; echo 'font-size = 9' > "$LG/ghostty/config"
+    printf 'y\n' | XDG_CONFIG_HOME="$LG" XDG_DATA_HOME="$T/gdata" script -qec "THEMES_DEST=$GH tools/themectl.sh themes switch nordic cyan" /dev/null >/dev/null 2>&1
+    [ ! -e "$LG/ghostty/config.ghostty" ] && [ "$(tail -1 "$LG/ghostty/config")" = 'config-file = ?candy-for-gnome.conf' ] && chk ok "ghostty: the legacy file name config is detected and used" || chk fail "ghostty: legacy config not handled"
+else echo "  skip interactive ghostty tests (script not installed)"; fi
+cp "$GCFG/config.ghostty" "$T/gh-config.after"
+out=$(gt just remove-theme nordic </dev/null 2>&1)
+[ ! -e "$GCFG/themes/candy-for-gnome-nordic-dark" ] && [ ! -e "$T/gdata/candy-for-gnome/ghostty/nordic.conf" ] && [ ! -L "$GCFG/candy-for-gnome.conf" ] && [ "$(cat "$GCFG/themes/gruvbox-material-dark")" = handmade ] && cmp -s "$GCFG/config.ghostty" "$T/gh-config.after" && chk ok "ghostty: remove deletes only our files and link, never edits the user config" || chk fail "ghostty remove"
+rm -rf "$GCFG" "$T/gdata" "$GH" "$T/cfg-legacy"
+
 # ---- Shell theme without the extension's gsettings schema (it is per user: gsettings does not list it) -----------------------
 echo "=== shell theme via dconf"
 first=$(echo $schemes | awk '{print $1}')

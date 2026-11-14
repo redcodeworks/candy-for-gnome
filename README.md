@@ -49,6 +49,20 @@ palettes come from the built-in Ptyxis terminal palettes, so the terminal, the a
 Icon sets: Papirus, Gruvbox Plus, Zafiro, candy, Tela and Fluent (sources in `tools/icon-sources.conf`).
 `switch-theme` also selects the matching Ptyxis built-in palette (the light or dark one, by the system setting, for schemes that have two) and the Text Editor color scheme.
 
+## Ghostty
+
+If you use the Ghostty terminal and have a `~/.config/ghostty` folder, `switch-theme` also sets a matching
+Ghostty theme that follows the light/dark setting of your system. Ghostty reads it through one line that you
+add to your Ghostty config (`switch-theme` asks once before adding it, or prints it when there is no terminal):
+
+```
+config-file = ?candy-for-gnome.conf
+```
+
+The theme set by that line wins over a `theme =` line in your own config. Ghostty does not reload by itself:
+press `ctrl+shift+,` in open Ghostty windows after switching. `remove-theme` removes the theme files and never
+edits your config.
+
 ## Flatpak apps
 
 Flatpak apps cannot read `~/.themes`, the icons or `~/.config/gtk-3.0|4.0` unless allowed. After

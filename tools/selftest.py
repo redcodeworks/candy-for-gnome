@@ -193,14 +193,29 @@ def toolkit(kind):
     shutil.rmtree(tmp)
     return not FAIL
 
+# ---- Ghostty theme files: committed files equal the generator's output; Ptyxis colours; marker; pair line ---------------------------
+def ghostty():
+    import importlib.util
+    sp = importlib.util.spec_from_file_location('ghostty_gen', os.path.join(HERE, 'ghostty-gen.py')); gg = importlib.util.module_from_spec(sp); sp.loader.exec_module(gg)
+    _, files = gg.build(D)
+    have = sorted(os.listdir(D + '/ghostty')) if os.path.isdir(D + '/ghostty') else []
+    ok(have == sorted(files), 'ghostty: files present are exactly %s (found %s)' % (sorted(files), have))
+    for n, t in files.items():
+        p = '%s/ghostty/%s' % (D, n)
+        ok(os.path.exists(p) and open(p).read() == t, 'ghostty: %s is current (run `just generate %s` when stale)' % (n, scheme))
+        ok(t.startswith('# candy-for-gnome: %s\n' % scheme), 'ghostty: %s starts with the marker comment' % n)
+        if n.endswith('.conf'): ok(t.count('\ntheme = dark:') == 1 and all(x in files for x in re.findall(r'(?:dark|light):([^,\n]+)', t)), 'ghostty: %s names theme files that exist' % n)
+        else: ok(len(re.findall(r'^palette = \d+=#[0-9a-f]{6}$', t, re.M)) == 16, 'ghostty: %s has 16 palette entries' % n)
+
 if mode == 'contrast': contrast()
+elif mode == 'ghostty': ghostty(); sys.exit(1 if FAIL else 0)
 elif mode in ('gtk3', 'gtk4', 'shell'):
     if mode == 'shell':
         import glob as g
         mut = g.glob('/usr/lib64/mutter-*')[0]; os.environ['GI_TYPELIB_PATH'] = '/usr/lib64/gnome-shell:' + mut
     toolkit(mode); sys.exit(1 if FAIL else 0)
 else:
-    contrast(); rc = 0
+    contrast(); ghostty(); rc = 0
     for k in ('gtk3', 'gtk4', 'shell'):
         env = dict(os.environ)
         if k == 'shell':

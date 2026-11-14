@@ -56,8 +56,8 @@ candy-for-gnome: themes and icon sets (just <recipe>; behind the image: ujust gn
                                  without a name pick from a checklist (nothing is ticked); a named theme skips the checklist
   update-theme                   pull this checkout when it has a remote, then replace every installed theme and re-apply its accent
   remove-theme [name]            remove an installed theme (checklist without a name); folders candy-for-gnome did not install are not touched
-  switch-theme [name] [accent]   make a theme the GTK, Shell and libadwaita theme and select the matching Ptyxis palette and Text Editor
-                                 style; the accent is one of the theme's own colors (asked when omitted)
+  switch-theme [name] [accent]   make a theme the GTK, Shell and libadwaita theme and select the matching Ptyxis palette, Text Editor
+                                 style and (when ~/.config/ghostty exists) Ghostty theme; the accent is one of the theme's own colors (asked when omitted)
   install-icon [name]            install an icon set from its source repo (cloned into ~/.cache/candy-for-gnome) into ~/.local/share/icons
   update-icon, remove-icon [name], switch-icon [name]   as for themes
 
@@ -687,6 +687,88 @@ gsv_switch() {   # point Text Editor (and Builder when present) at the scheme's 
     else echo "Builder not found (no org.gnome.builder.editor schema, no Flatpak); its style scheme key was not set."; fi
 }
 
+# ---- Ghostty themes (themes only; works on the config directory only, never assumes how Ghostty is installed) ----------------------
+# Generated files per scheme (<scheme>/ghostty/): theme files candy-for-gnome-<scheme>-{dark,light} go to $cfg/ghostty/themes, the pair file
+# <scheme>.conf (one `theme = dark:...,light:...` line) to $gh_data. switch-theme links $cfg/ghostty/candy-for-gnome.conf to the pair file and, after
+# one question (default no), adds `config-file = ?candy-for-gnome.conf` to the user's main config. Nothing happens when $cfg/ghostty does not exist.
+gh_dir="$cfg/ghostty"; gh_data="${XDG_DATA_HOME:-$HOME/.local/share}/candy-for-gnome/ghostty"
+gh_link="$gh_dir/candy-for-gnome.conf"; gh_line='config-file = ?candy-for-gnome.conf'
+gh_present() { [ -d "$gh_dir" ]; }
+gh_themes() { local f; for f in "$root/$1"/ghostty/*; do [ -f "$f" ] && case "$f" in *.conf) ;; *) basename "$f" ;; esac; done; return 0; }   # theme file names of scheme $1
+gh_targets() {   # gh_targets SCHEME: "<source file>|<destination>" for every file to install (theme files, then the pair file)
+    local f; for f in $(gh_themes "$1"); do echo "$root/$1/ghostty/$f|$gh_dir/themes/$f"; done
+    [ -f "$root/$1/ghostty/$1.conf" ] && echo "$root/$1/ghostty/$1.conf|$gh_data/$1.conf"; return 0
+}
+gh_install() {   # gh_install SCHEME: copy the theme files and the pair file (same collision guard as the other files)
+    local s="$1" src dst n=0
+    gh_present || return 0
+    while IFS='|' read -r src dst; do
+        pty_may_touch "$s" Replace "$dst" || continue
+        mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; n=$((n+1))
+    done < <(gh_targets "$s")
+    if [ "$n" -gt 0 ]; then echo "Installed Ghostty theme file(s) of $s ($n file(s); $gh_dir/themes and $gh_data)."; fi
+    return 0
+}
+gh_refresh() {   # update: refresh only the files that exist and are ours
+    local s="$1" src dst
+    gh_present || return 0
+    while IFS='|' read -r src dst; do [ -f "$dst" ] && pty_ours "$s" "$dst" && cp "$src" "$dst"; done < <(gh_targets "$s")
+    return 0
+}
+gh_conf_file() { local f; for f in "$gh_dir/config.ghostty" "$gh_dir/config"; do if [ -f "$f" ]; then echo "$f"; return 0; fi; done; return 0; }   # the user's main config
+gh_line_in() { grep -qE '^[[:space:]]*config-file[[:space:]]*=[[:space:]]*"?\??candy-for-gnome\.conf"?[[:space:]]*$' "$1" 2>/dev/null; }
+gh_link_ours() { [ -L "$gh_link" ] && case "$(readlink "$gh_link")" in "$gh_data"/*) return 0 ;; esac; return 1; }
+gh_remove() {    # remove only files that carry our marker and the link when it points at this scheme's pair file; the user's config is never edited
+    local s="$1" src dst conf
+    gh_present || return 0
+    while IFS='|' read -r src dst; do
+        [ -e "$dst" ] || continue
+        if pty_ours "$s" "$dst"; then rm -f "$dst"; echo "Removed $dst"; else echo "Left $dst alone (not installed by candy-for-gnome)." >&2; fi
+    done < <(gh_targets "$s")
+    if gh_link_ours && [ "$(readlink "$gh_link")" = "$gh_data/$s.conf" ]; then
+        rm -f "$gh_link"; echo "Removed $gh_link"
+        conf=$(gh_conf_file)
+        if [ -n "$conf" ] && gh_line_in "$conf"; then echo "Ghostty: your $conf still has the line below; it is harmless (the ? ignores a missing file), delete it when you like:"; echo "  $gh_line"; fi
+    fi
+    return 0
+}
+gh_switch() {    # point Ghostty at the scheme: link the pair file, ask once about the include line, print the reload hint
+    local s="$1" conf a first
+    if ! gh_present; then echo "Ghostty: no config directory ($gh_dir), so nothing was set up for it."; return 0; fi
+    first=$(gh_themes "$s" | head -n1)
+    if [ -z "$first" ] || ! pty_ours "$s" "$gh_data/$s.conf" || ! pty_ours "$s" "$gh_dir/themes/$first"; then
+        echo "Ghostty theme not applied: the installed copy of $s is missing or not ours."; return 0
+    fi
+    if [ ! -e "$gh_link" ] && [ ! -L "$gh_link" ] || gh_link_ours; then ln -sfn "$gh_data/$s.conf" "$gh_link"
+    else
+        a=n
+        if [ "${FORCE:-}" = 1 ]; then a=y
+        elif [ "$tty_in" = 1 ]; then read -r -u 3 -p "$gh_link exists and was not created by candy-for-gnome. Replace it with a link to the theme? [y/N] " a || a=n
+        else echo "Refused: $gh_link exists and was not created by candy-for-gnome; left alone (FORCE=1 replaces it, or run in a terminal to be asked)." >&2; return 0; fi
+        case "$a" in [yY]*) rm -rf "$gh_link"; ln -s "$gh_data/$s.conf" "$gh_link" ;; *) echo "Left $gh_link alone." >&2; return 0 ;; esac
+    fi
+    echo "Ghostty theme is now $s (follows the system light/dark setting; $gh_link)."
+    conf=$(gh_conf_file)
+    if [ -n "$conf" ] && gh_line_in "$conf"; then :
+    elif [ -z "$conf" ]; then
+        echo "Ghostty: no config.ghostty or config in $gh_dir. To use the theme, put this line in your Ghostty config:"; echo "  $gh_line"
+    elif [ "$tty_in" = 1 ]; then
+        read -r -u 3 -p "Add the line '$gh_line' to $conf so Ghostty loads the theme (no other line is touched; the theme line it includes overrides a theme= line there)? [y/N] " a || a=n
+        case "$a" in
+            [yY]*) [ -z "$(tail -c1 "$conf")" ] || echo >> "$conf"; echo "$gh_line" >> "$conf"; echo "Added the line to $conf." ;;
+            *) echo "Left $conf alone. To use the theme, add this line yourself:"; echo "  $gh_line" ;;
+        esac
+    else
+        echo "Ghostty: not editing $conf without a terminal. To use the theme, add this line to it:"; echo "  $gh_line"
+    fi
+    echo "Ghostty has no auto-reload: press ctrl+shift+, (reload_config) in open Ghostty windows."
+}
+gh_status() {    # a line for list-themes, only when the Ghostty config directory exists
+    gh_present || return 0
+    local t="none" conf; gh_link_ours && t=$(basename "$(readlink "$gh_link")" .conf); conf=$(gh_conf_file)
+    echo "Ghostty ($gh_dir): theme $t; include line: $([ -n "$conf" ] && gh_line_in "$conf" && echo present || echo "not in the config")"
+}
+
 # ---- Flatpak access (themes and icons: grant after switch-theme, undo after the last removal) -------------------
 # shellcheck disable=SC2088  # the tilde is literal on purpose: flatpak stores and shows the entry as ~/.themes
 fp_paths=(xdg-config/gtk-3.0:ro xdg-config/gtk-4.0:ro xdg-data/icons:ro '~/.themes:ro')   # literal tilde, as flatpak stores it; the only entries candy-for-gnome ever manages
@@ -801,7 +883,8 @@ case "$action" in
         for i in "${!items[@]}"; do
             ac=""; if [ "$kind" = themes ]; then ac="  [accent: $(current_accent "${items[i]}")]"; fi
             if is_installed "${items[i]}"; then echo "✓ ${labels[i]}$ac"; else echo "  ${labels[i]}"; fi
-        done ;;
+        done
+        if [ "$kind" = themes ]; then gh_status; fi ;;
 
     install)
         just_installed=()
@@ -825,7 +908,7 @@ case "$action" in
         for nm in "${names[@]}"; do
             if [ "$kind" = icons ] && [ ! -d "$(clone_of "${i_src[$nm]}")/.git" ]; then echo "Skipping $nm: its source ${i_src[$nm]} is not available." >&2; continue; fi
             before=$installed_n; copy_item "$nm"; if [ "$installed_n" -gt "$before" ]; then just_installed+=("$nm"); fi
-            if [ "$kind" = themes ]; then pty_cleanup; gsv_install "$nm"; fi; done
+            if [ "$kind" = themes ]; then pty_cleanup; gsv_install "$nm"; gh_install "$nm"; fi; done
         if [ "$installed_n" -eq 0 ]; then echo "Nothing was installed (see the messages above)."
         else
             if [ "$kind" = themes ]; then echo "Next: run switch-theme to use it."; else echo "Next: run switch-icon to use it."; fi
@@ -841,7 +924,7 @@ case "$action" in
         for nm in "${inst[@]}"; do
             if [ "$kind" = icons ] && [ ! -d "$(clone_of "${i_src[$nm]}")/.git" ]; then echo "Skipping $nm: its source ${i_src[$nm]} is not available." >&2; continue; fi
             if [ "$kind" = icons ]; then copy_item "$nm"; n=$((n+1))
-            else while read -r f; do if [ -e "$dest/$f" ] && copy_folder "$f" "$nm"; then n=$((n+1)); fi; done < <(folders_of "$nm"); pty_cleanup; gsv_refresh "$nm"; fi
+            else while read -r f; do if [ -e "$dest/$f" ] && copy_folder "$f" "$nm"; then n=$((n+1)); fi; done < <(folders_of "$nm"); pty_cleanup; gsv_refresh "$nm"; gh_refresh "$nm"; fi
         done
         [ "$n" -gt 0 ] || echo "None of the ${noun}s from this source is installed in $dest." ;;
 
@@ -868,7 +951,7 @@ case "$action" in
                 fi
             done < <(folders_of "${items[i]}")
             if [ "$kind" = themes ] && ! is_installed "${items[i]}"; then state_del "$state/accents" "${items[i]}"; fi
-            if [ "$kind" = themes ]; then pty_cleanup; gsv_remove "${items[i]}"; fi
+            if [ "$kind" = themes ]; then pty_cleanup; gsv_remove "${items[i]}"; gh_remove "${items[i]}"; fi
         done
         # shared hidden base dirs (Fluent): remove one only when no remaining installed set links into it
         if [ "$kind" = icons ]; then
@@ -897,7 +980,7 @@ case "$action" in
                 accent_pick="$accent_arg"
             else choose_accent "${items[i]}"; fi
             if [ -n "$accent_pick" ]; then state_set "$state/accents" "${items[i]}" "$accent_pick"; fi
-            copy_item "${items[i]}"; pty_cleanup; gsv_install "${items[i]}"
+            copy_item "${items[i]}"; pty_cleanup; gsv_install "${items[i]}"; gh_install "${items[i]}"
             [ -z "$accent_pick" ] || echo "Accent: $accent_pick."
         fi
         set_ini() {  # set_ini KEY VALUE: rewrite the key in the GTK settings.ini files that already have it
@@ -968,7 +1051,7 @@ case "$action" in
                 else echo "$target differs from the scheme's libadwaita file; left alone (run in a terminal to replace it)."
                 fi
             fi
-            pty_cleanup; pty_switch "$sc"; gsv_switch "$sc"; fp_check
+            pty_cleanup; pty_switch "$sc"; gsv_switch "$sc"; gh_switch "$sc"; fp_check
             echo "Restart GTK apps to pick up the new theme."
         fi ;;
 
