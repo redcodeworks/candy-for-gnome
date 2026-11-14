@@ -207,15 +207,54 @@ def ghostty():
         if n.endswith('.conf'): ok(t.count('\ntheme = dark:') == 1 and all(x in files for x in re.findall(r'(?:dark|light):([^,\n]+)', t)), 'ghostty: %s names theme files that exist' % n)
         else: ok(len(re.findall(r'^palette = \d+=#[0-9a-f]{6}$', t, re.M)) == 16, 'ghostty: %s has 16 palette entries' % n)
 
+
+# ---- per-application themes (Alacritty, Helix, Yazi, kitty, bat, eza, zellij, Claude Code): committed files equal the generators' output ----------
+APPS = ('alacritty', 'helix', 'yazi', 'kitty', 'bat', 'eza', 'zellij', 'claude')
+def apps():
+    import importlib.util, tomllib, json, plistlib
+    sys.path.insert(0, HERE)
+    import appthemes as A
+    for tool in APPS:
+        sp = importlib.util.spec_from_file_location(tool + '_gen', os.path.join(HERE, tool + '-gen.py')); g = importlib.util.module_from_spec(sp); sp.loader.exec_module(g)
+        _, files = g.build(D)
+        base = '%s/%s' % (D, tool)
+        have = sorted(os.path.relpath(os.path.join(r, f), base) for r, _, fs in os.walk(base) for f in fs) if os.path.isdir(base) else []
+        ok(have == sorted(files), '%s: files present are exactly the generator output (found %s)' % (tool, have))
+        for n, t in files.items():
+            p = '%s/%s' % (base, n)
+            ok(os.path.exists(p) and open(p).read() == t, '%s: %s is current (run `just generate %s` when stale)' % (tool, n, scheme))
+            if n.endswith('.json'): ok(json.loads(t)['name'].startswith('candy-for-gnome: %s ' % scheme), '%s: %s name carries the marker' % (tool, n)); json.loads(t)
+            elif n.endswith(('.tmTheme', '.xml')): ok('<!-- candy-for-gnome: %s -->' % scheme in t, '%s: %s carries the marker' % (tool, n)); plistlib.loads(t.encode()) if n.endswith('.tmTheme') else None
+            elif n.endswith('.kdl'): ok(t.startswith('// candy-for-gnome: %s\n' % scheme) and t.count('{') == t.count('}'), '%s: %s has the marker and balanced braces' % (tool, n))
+            else: ok(t.startswith('# candy-for-gnome: %s\n' % scheme), '%s: %s starts with the marker comment' % (tool, n))
+            if n.endswith('.toml'): tomllib.loads(t)
+    # contrast of what the apps draw as text (the editor palette is nudged by construction; these check the generated output)
+    sc, vs, _ = A.model(D)
+    for slot, v in vs.items():
+        B = v.syn['bg-deep']
+        z = open('%s/zellij/candy-for-gnome-%s.kdl' % (D, scheme)).read()
+        th = z.split('candy-for-gnome-%s {' % slot, 1)[1].split('multiplayer_user_colors', 1)[0] if ('candy-for-gnome-%s {' % slot) in z else ''
+        for comp in ('text_unselected', 'text_selected', 'ribbon_selected', 'ribbon_unselected', 'list_unselected'):
+            m = re.search(r'%s \{\s*base (\d+) (\d+) (\d+)\s*background (\d+) (\d+) (\d+)' % comp, th)
+            if m: a = '#%02x%02x%02x' % tuple(int(x) for x in m.groups()[:3]); b = '#%02x%02x%02x' % tuple(int(x) for x in m.groups()[3:]); ok(cr(a, b) >= 4.5, 'zellij %s: %s text on its background %.2f:1' % (slot, comp, cr(a, b)))
+        ov = json.load(open('%s/claude/%s-%s.json' % (D, scheme, slot)))['overrides']
+        for tk in ('text', 'claude', 'permission', 'success', 'error', 'warning', 'suggestion'):
+            ok(cr(ov[tk], B) >= 4.5, 'claude %s: %s on the editor background %.2f:1' % (slot, tk, cr(ov[tk], B)))
+        ok(cr(ov['text'], ov['userMessageBackground']) >= 4.5, 'claude %s: text on the user message background' % slot)
+        ey = open('%s/eza/candy-for-gnome-%s-%s.yml' % (D, scheme, slot)).read()
+        low = [x for x in re.findall(r'foreground: "(#[0-9a-f]{6})"', ey) if cr(x, B) < 4.5 - 0.01]
+        ok(all(cr(x, B) >= 3.0 for x in low) and set(low) <= {v.syn['comment']}, 'eza %s: every colour has 4.5:1 on the editor background (only the comment colour, 3:1, is lower)' % slot)
+
 if mode == 'contrast': contrast()
 elif mode == 'ghostty': ghostty(); sys.exit(1 if FAIL else 0)
+elif mode == 'apps': apps(); sys.exit(1 if FAIL else 0)
 elif mode in ('gtk3', 'gtk4', 'shell'):
     if mode == 'shell':
         import glob as g
         mut = g.glob('/usr/lib64/mutter-*')[0]; os.environ['GI_TYPELIB_PATH'] = '/usr/lib64/gnome-shell:' + mut
     toolkit(mode); sys.exit(1 if FAIL else 0)
 else:
-    contrast(); ghostty(); rc = 0
+    contrast(); ghostty(); apps(); rc = 0
     for k in ('gtk3', 'gtk4', 'shell'):
         env = dict(os.environ)
         if k == 'shell':
