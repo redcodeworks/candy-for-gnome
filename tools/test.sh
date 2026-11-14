@@ -236,7 +236,7 @@ THEMES_PICKER=gum GUM_STUB_HEADING=1 GUM_STUB_PICK='^(★ )?(nordic|dracula)  ' 
 [ -d "$GP/Nordic-Nord" ] && [ -d "$GP/Dracula" ] && [ "$(find "$GP" -mindepth 1 -maxdepth 1 -not -name 'Nordic*' -not -name 'Dracula*' | wc -l)" -eq 0 ] && chk ok "gum handler (stub): the ticked entries are installed, a returned section heading is ignored" || chk fail "gum install: $(ls "$GP" | tr '\n' ' ')"
 grep -qx -- '--no-limit' "$STUB_LOG" && grep -qx -- '◉  ' "$STUB_LOG" && grep -qx -- '○  ' "$STUB_LOG" && grep -qx -- '▸  ' "$STUB_LOG" && ! grep -qx -- '--selected' "$STUB_LOG" && chk ok "gum choose --no-limit with the ◉ ○ ▸ prefixes and nothing preselected for install" || chk fail "gum arguments: $(tr '\n' '|' < "$STUB_LOG")"
 grep -qx -- '--cursor.foreground=2' "$STUB_LOG" && grep -qx -- '--selected.foreground=2' "$STUB_LOG" && grep -qx -- '--header.foreground=' "$STUB_LOG" && grep -qx -- '--item.foreground=' "$STUB_LOG" && ! grep -Eq -- '#[0-9a-fA-F]{3,6}|foreground=[0-9]{2,3}$' "$STUB_LOG" && chk ok "gum colors: ANSI palette colors only (cursor and selected 2, header and item the default), no 256-color or hex values" || chk fail "gum colors: $(grep foreground "$STUB_LOG" | tr '\n' ' ')"
-grep -q '^──' "$STUB_LOG" && chk fail "gum list has divider rows" || { items=$(grep -E '^(★ )?[a-z0-9-]+  \(GTK' "$STUB_LOG" | head -7 | tr '\n' '|'); case "$items" in "★ nordic  "*"|★ gruvbox-material  "*"|★ everforest  "*"|★ tokyo-night  "*"|★ dracula  "*"|★ fairy-floss  "*"|3024  "*) chk ok "gum list: no divider rows; the featured six come first with their star, then the rest" ;; *) chk fail "gum list order: $items" ;; esac; }
+grep -q '^──' "$STUB_LOG" && chk fail "gum list has divider rows" || { items=$(grep -E '^(★ )?[a-z0-9-]+  \(GTK' "$STUB_LOG" | head -9 | tr '\n' '|'); case "$items" in "★ nordic  "*"|★ gruvbox-material  "*"|★ everforest  "*"|★ tokyo-night  "*"|★ dracula  "*"|★ fairy-floss  "*"|★ catppuccin  "*"|★ aubergine  "*"|3024  "*) chk ok "gum list: no divider rows; the eight featured come first with their star, then the rest" ;; *) chk fail "gum list order: $items" ;; esac; }
 rm -f "$STUB_LOG"; GUM_CHOOSE_CURSOR_FOREGROUND=5 GUM_CHOOSE_HEADER_FOREGROUND=212 THEMES_PICKER=gum GUM_STUB_PICK=zzz PATH="$SB:$PATH" THEMES_DEST=$GP tools/themectl.sh themes install </dev/null >/dev/null 2>&1
 ! grep -q -- '--cursor.foreground' "$STUB_LOG" && ! grep -q -- '--header.foreground' "$STUB_LOG" && grep -qx -- '--selected.foreground=2' "$STUB_LOG" && chk ok "gum colors the user set in GUM_CHOOSE_* are left alone (no flag overrides them)" || chk fail "user gum colors overridden: $(grep foreground "$STUB_LOG" | tr '\n' ' ')"
 rm -rf "$GP"; mkdir -p "$GP"; THEMES_PICKER=gum GUM_STUB_STRIP=1 GUM_STUB_PICK='^(★ )?(tokyo-night|everforest)  ' PATH="$SB:$PATH" THEMES_DEST=$GP tools/themectl.sh themes install </dev/null >/dev/null 2>&1
@@ -358,7 +358,7 @@ rm -rf "$GCFG" "$T/gdata" "$GH" "$T/cfg-legacy"
 
 # ---- Shell theme without the extension's gsettings schema (it is per user: gsettings does not list it) -----------------------
 echo "=== shell theme via dconf"
-first=$(echo ${named[*]:-$all_schemes} | awk '{print $1}')
+first=$({ printf '%s\n' "${named[@]}"; echo "$all_schemes"; } | grep -vx '' | head -n1 | awk '{print $1}')
 mkdir -p "$T/bin2"; DLOG="$T/dconf.log"; : > "$DLOG"
 printf '#!/bin/sh\ncase "$1" in set) echo "set $2 $3 $4" >> "%s" ;; get) echo "\x27prefer-dark\x27" ;; list-schemas) : ;; esac\n' "$LOG" > "$T/bin2/gsettings"
 printf '#!/bin/sh\n[ "$1" = write ] && echo "write $2 $3" >> "%s"\n' "$DLOG" > "$T/bin2/dconf"
@@ -369,7 +369,7 @@ grep -q "write /org/gnome/shell/extensions/user-theme/name" "$DLOG" && chk ok "s
 
 # ---- libadwaita file: no confirmation for our own files or when the backup of the original already exists ---------------------
 echo "=== libadwaita file replacement"
-first=$(echo ${named[*]:-$all_schemes} | awk '{print $1}'); D="$T/themes-la"; CFGLA="$T/cfg-la"; mkdir -p "$CFGLA/gtk-4.0"; accs=$(grep -v '^#' "$first/accents/list" | awk 'NF {print $1}')
+first=$({ printf '%s\n' "${named[@]}"; echo "$all_schemes"; } | grep -vx '' | head -n1 | awk '{print $1}'); D="$T/themes-la"; CFGLA="$T/cfg-la"; mkdir -p "$CFGLA/gtk-4.0"; accs=$(grep -v '^#' "$first/accents/list" | awk 'NF {print $1}')
 a1=$(echo "$accs" | sed -n 1p); a2=$(echo "$accs" | sed -n 2p)
 THEMES_DEST=$D just install-theme "$first" >/dev/null 2>&1
 sw() { XDG_CONFIG_HOME="$CFGLA" THEMES_DEST=$D just switch-theme "$first" "$1" 2>&1 </dev/null; }
