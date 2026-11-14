@@ -63,6 +63,28 @@ The theme set by that line wins over a `theme =` line in your own config. Ghostt
 press `ctrl+shift+,` in open Ghostty windows after switching. `remove-theme` removes the theme files and never
 edits your config.
 
+## More apps
+
+If one of these tools is installed (found on your PATH or in the Homebrew bin folder), `install-theme` copies the
+matching theme files into its config folder and `switch-theme` points the tool at the theme. Tools that are not
+installed are skipped and nothing is created for them. Where the tool needs one line in its own config, `switch-theme`
+asks once (default no) before changing it, and prints the exact line instead when there is no terminal. `remove-theme`
+removes the theme files and never edits your configs; it tells you what you may delete.
+
+| Tool | What it follows | The one thing your config needs | After switching |
+|---|---|---|---|
+| Alacritty | the light/dark setting when you run `switch-theme` | `"~/.config/alacritty/themes/candy-for-gnome.toml"` in `general.import` (after any other color import) | live reload of imports; a Noctalia apply hook can add its own `noctalia.toml` import after yours and then wins |
+| Helix | the light/dark setting when you run `switch-theme` | `theme = "candy-for-gnome"` | `:config-reload` |
+| Yazi | the terminal's light/dark | `dark = "candy-for-gnome-dark"` and `light = "candy-for-gnome-light"` in `[flavor]` of `theme.toml` (colors in your own `theme.toml` still win) | restart Yazi |
+| kitty | the system light/dark (0.38+) | nothing | automatic |
+| bat | the terminal's light/dark | `--theme="auto:system"`, `--theme-dark="candy-for-gnome-dark"`, `--theme-light="candy-for-gnome-light"` | the cache is rebuilt for you |
+| eza | the light/dark setting when you run `switch-theme` | your own `theme.yml` is moved aside as `theme.yml.candy-bak` (asked once) and replaced by a link; `EZA_COLORS` or `LS_COLORS` still override it | immediate |
+| zellij | the system light/dark | `theme_dark "candy-for-gnome-dark"` and `theme_light "candy-for-gnome-light"` | live reload; restart a session if needed |
+| Claude Code | the light/dark setting when you run `switch-theme` | pick it once with `/theme` (stored as `custom:candy-for-gnome`); your `settings.json` is never edited | restart Claude Code once if its themes folder is new |
+
+A dark-only theme uses its dark colors for both modes. Run `switch-theme` again after you change the system
+light/dark setting for the tools marked as following it at switch time.
+
 ## Flatpak apps
 
 Flatpak apps cannot read `~/.themes`, the icons or `~/.config/gtk-3.0|4.0` unless allowed. After

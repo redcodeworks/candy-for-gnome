@@ -67,6 +67,7 @@ SH
 chmod +x "$T/bin/dconf"
 export THEMES_PICKER=builtin THEMES_SWITCH_AFTER_INSTALL=0   # tests choose the picker explicitly (a developer machine may have gum) and enable the switch menu after an install only in their own pty tests
 export PTYXIS_PALETTES="$T/ptyxis-palettes" GTKSOURCEVIEW_STYLES="$T/gsv-styles" FLATPAK_APPS="$T/var-app"
+export CANDY_FOR_GNOME_BREW_BIN="$T/nobrew" CANDY_FOR_GNOME_APPS_PATH="$T/noapps"   # no Homebrew bin dir and no PATH search (the container may ship bat): the per-app themes see only what a test points the knobs at
 export PATH="$T/bin:$PATH" XDG_CONFIG_HOME="$T/cfg" XDG_STATE_HOME="$T/state" CANDY_FOR_GNOME_CACHE="$T/cache"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 # a stand-in flatpak (FLATPAK_DB: the global override's filesystems, one entry per line); only the calls themectl makes. Absent unless a test
@@ -355,6 +356,108 @@ cp "$GCFG/config.ghostty" "$T/gh-config.after"
 out=$(gt just remove-theme nordic </dev/null 2>&1)
 [ ! -e "$GCFG/themes/candy-for-gnome-nordic-dark" ] && [ ! -e "$T/gdata/candy-for-gnome/ghostty/nordic.conf" ] && [ ! -L "$GCFG/candy-for-gnome.conf" ] && [ "$(cat "$GCFG/themes/gruvbox-material-dark")" = handmade ] && cmp -s "$GCFG/config.ghostty" "$T/gh-config.after" && chk ok "ghostty: remove deletes only our files and link, never edits the user config" || chk fail "ghostty remove"
 rm -rf "$GCFG" "$T/gdata" "$GH" "$T/cfg-legacy"
+
+# ---- per-application themes (Alacritty, Helix, Yazi, kitty, bat, eza, zellij, Claude Code) -------------------------------------------------------
+echo "=== app themes"
+AB="$T/appbin"; mkdir -p "$AB"; for t in alacritty hx yazi kitty eza zellij claude flatpak; do printf '#!/bin/sh\nexit 0\n' > "$AB/$t"; done; printf '#!/bin/sh\nexit 1\n' > "$AB/flatpak"
+printf '#!/bin/sh\ncase "$1" in --config-dir) echo "%s/cfg-apps/bat" ;; cache) echo "cache $*" >> "%s/bat.log" ;; esac\n' "$T" "$T" > "$AB/bat"; chmod +x "$AB"/*
+CFGA="$T/cfg-apps"; HA="$T/home-apps"; APD="$T/themes-apps"; BATLOG="$T/bat.log"
+ap() { HOME="$HA" XDG_CONFIG_HOME="$CFGA" XDG_DATA_HOME="$T/adata" THEMES_DEST="$APD" "$@"; }
+aps() { ap env CANDY_FOR_GNOME_APPS_PATH="$AB" PATH="$AB:$PATH" "$@"; }   # with the stub tools installed
+app_reset() {   # fresh configs the way a real setup looks (hand-made themes, a Noctalia-style import list, a regular eza theme, Claude settings)
+    rm -rf "$CFGA" "$HA" "$APD" "$T/adata" "$BATLOG"; mkdir -p "$CFGA"/{alacritty,helix,yazi,bat,zellij,eza} "$HA/.claude" "$APD"
+    printf '[general]\nimport = [\n    "~/.config/alacritty/themes/gruvbox-material-dark.toml",\n]\n\n[terminal.shell]\nprogram = "/usr/bin/fish"\n' > "$CFGA/alacritty/alacritty.toml"
+    printf 'theme = "gruvbox-material"\n\n[editor]\nline-number = "relative"\n' > "$CFGA/helix/config.toml"
+    printf '[flavor]\ndark = "gruvbox-material"\n\n[status]\nprogress_label = { bold = true }\n' > "$CFGA/yazi/theme.toml"
+    printf -- '--theme=noctalia\n--style=numbers\n' > "$CFGA/bat/config"
+    printf 'theme "gruvbox-material-dark"\nthemes {\n    gruvbox-material-dark { }\n}\n' > "$CFGA/zellij/config.kdl"
+    printf 'filekinds:\n  normal: {foreground: "#d4be98"}\n' > "$CFGA/eza/theme.yml"
+    printf '{"theme": "auto", "permissions": {"allow": []}}\n' > "$HA/.claude/settings.json"
+    mkdir -p "$CFGA/helix/themes"; echo handmade > "$CFGA/helix/themes/gruvbox-material.toml"
+}
+cfg_snapshot() { (cd "$CFGA" && sha1sum alacritty/alacritty.toml helix/config.toml yazi/theme.toml bat/config zellij/config.kdl; [ ! -L eza/theme.yml ] && sha1sum eza/theme.yml 2>/dev/null; sha1sum "$HA/.claude/settings.json"); }
+# 1. no supported tool installed: nothing is created, no line in list, no mention
+rm -rf "$CFGA" "$HA" "$APD"; mkdir -p "$APD"
+out=$(ap just install-theme gruvbox-material </dev/null 2>&1; ap just switch-theme gruvbox-material </dev/null 2>&1; ap just update-theme </dev/null 2>&1; ap just list-themes </dev/null 2>&1; ap just remove-theme gruvbox-material </dev/null 2>&1)
+[ ! -e "$CFGA/alacritty" ] && [ ! -e "$CFGA/helix" ] && [ ! -e "$CFGA/yazi" ] && [ ! -e "$CFGA/kitty" ] && [ ! -e "$CFGA/bat" ] && [ ! -e "$CFGA/eza" ] && [ ! -e "$CFGA/zellij" ] && [ ! -e "$HA/.claude" ] \
+  && ! printf '%s\n' "$out" | grep -qiE 'alacritty|helix|yazi|kitty|zellij|claude|Not installed' && chk ok "app themes: no supported tool installed: install, switch, update, list and remove create nothing and say nothing" || chk fail "app themes without tools ($out)"
+# 2. tools installed (kitty missing): install copies marked files, kitty is skipped and named once in list
+app_reset; rm -f "$AB/kitty"
+out=$(aps just install-theme gruvbox-material </dev/null 2>&1); lst=$(aps just list-themes </dev/null 2>&1)
+ok=1; for f in alacritty/themes/candy-for-gnome-gruvbox-material-dark.toml alacritty/themes/candy-for-gnome-gruvbox-material-light.toml helix/themes/candy-for-gnome-gruvbox-material-dark.toml eza/themes/candy-for-gnome-gruvbox-material-light.yml zellij/themes/candy-for-gnome-gruvbox-material.kdl bat/themes/candy-for-gnome-gruvbox-material-dark.tmTheme yazi/flavors/candy-for-gnome-gruvbox-material-dark.yazi/flavor.toml yazi/flavors/candy-for-gnome-gruvbox-material-light.yazi/tmtheme.xml; do [ -f "$CFGA/$f" ] || { ok=0; echo "missing $f"; }; done
+[ $ok = 1 ] && [ ! -e "$CFGA/kitty" ] && [ ! -e "$HA/.claude/themes" ] && [ -s "$BATLOG" ] && [ "$(printf '%s\n' "$lst" | grep -c 'Not installed')" = 1 ] && printf '%s\n' "$lst" | grep -q '^Not installed (skipped): kitty$' && printf '%s\n' "$lst" | grep -q '^Apps themed: alacritty helix yazi bat eza zellij claude$' \
+  && chk ok "app themes: install copies the marked files of every installed tool (yazi as directories), rebuilds the bat cache, skips kitty (one list line); Claude Code's file waits for switch" || chk fail "app install ($out / $lst)"
+head -1 "$CFGA/zellij/themes/candy-for-gnome-gruvbox-material.kdl" | grep -qx '// candy-for-gnome: gruvbox-material' && grep -qx '<!-- candy-for-gnome: gruvbox-material -->' "$CFGA/bat/themes/candy-for-gnome-gruvbox-material-dark.tmTheme" && head -1 "$CFGA/yazi/flavors/candy-for-gnome-gruvbox-material-dark.yazi/flavor.toml" | grep -qx '# candy-for-gnome: gruvbox-material' && chk ok "app themes: installed files carry the markers (# // XML)" || chk fail "app markers"
+# 3. switch without a terminal: links, files, printed lines; no user config line changes
+printf '#!/bin/sh\nexit 0\n' > "$AB/kitty"; chmod +x "$AB/kitty"; cfg_snapshot > "$T/apps.before"
+out=$(aps just switch-theme gruvbox-material </dev/null 2>&1)
+rl() { readlink "$1" 2>/dev/null; }
+[ "$(rl "$CFGA/alacritty/themes/candy-for-gnome.toml")" = candy-for-gnome-gruvbox-material-dark.toml ] && [ "$(rl "$CFGA/helix/themes/candy-for-gnome.toml")" = candy-for-gnome-gruvbox-material-dark.toml ] \
+  && [ "$(rl "$CFGA/yazi/flavors/candy-for-gnome-dark.yazi")" = candy-for-gnome-gruvbox-material-dark.yazi ] && [ "$(rl "$CFGA/yazi/flavors/candy-for-gnome-light.yazi")" = candy-for-gnome-gruvbox-material-light.yazi ] \
+  && [ "$(rl "$CFGA/bat/themes/candy-for-gnome-dark.tmTheme")" = candy-for-gnome-gruvbox-material-dark.tmTheme ] && [ "$(rl "$CFGA/zellij/themes/candy-for-gnome.kdl")" = candy-for-gnome-gruvbox-material.kdl ] \
+  && chk ok "app themes: switch links Alacritty, Helix, Yazi, bat and zellij (relative links, variant from the dark system setting)" || chk fail "app links ($(find "$CFGA" -type l | tr '\n' ' '))"
+[ "$(rl "$CFGA/kitty/dark-theme.auto.conf")" = themes/candy-for-gnome-gruvbox-material-dark.conf ] && [ "$(rl "$CFGA/kitty/light-theme.auto.conf")" = themes/candy-for-gnome-gruvbox-material-light.conf ] && [ "$(rl "$CFGA/kitty/no-preference-theme.auto.conf")" = themes/candy-for-gnome-gruvbox-material-light.conf ] \
+  && chk ok "app themes: kitty gets the three auto files (no-preference carries the light colors)" || chk fail "kitty links"
+[ -f "$HA/.claude/themes/candy-for-gnome.json" ] && [ ! -L "$HA/.claude/themes/candy-for-gnome.json" ] && grep -q '"base": "dark"' "$HA/.claude/themes/candy-for-gnome.json" && grep -q '"name": "candy-for-gnome: gruvbox-material dark"' "$HA/.claude/themes/candy-for-gnome.json" && printf '%s\n' "$out" | grep -q 'custom:candy-for-gnome' \
+  && chk ok "app themes: Claude Code gets a regular file (dark base) and the /theme instruction; settings.json is not touched" || chk fail "claude file"
+[ "$(cat "$CFGA/eza/theme.yml" | head -1)" = 'filekinds:' ] && [ ! -L "$CFGA/eza/theme.yml" ] && printf '%s\n' "$out" | grep -q 'theme.yml.candy-bak' && chk ok "app themes: a regular eza theme.yml is left alone without a terminal (the move-aside command is printed)" || chk fail "eza regular file"
+cfg_snapshot > "$T/apps.after"; cmp -s "$T/apps.before" "$T/apps.after" && printf '%s\n' "$out" | grep -qF 'import = [ "' && printf '%s\n' "$out" | grep -qxF '  theme = "candy-for-gnome"' && printf '%s\n' "$out" | grep -qxF '  dark = "candy-for-gnome-dark"' && printf '%s\n' "$out" | grep -qxF -- '  --theme-dark="candy-for-gnome-dark"' && printf '%s\n' "$out" | grep -qxF '  theme_dark "candy-for-gnome-dark"' \
+  && chk ok "app themes: without a terminal no user config changes; the exact lines are printed for Alacritty, Helix, Yazi, bat and zellij" || chk fail "app configs changed or lines missing ($out)"
+# 4. dark-only scheme: its dark file serves both appearances; the variant of the no-switching tools follows the system colour scheme
+aps just install-theme nordic </dev/null >/dev/null 2>&1; aps just switch-theme nordic </dev/null >/dev/null 2>&1
+[ "$(rl "$CFGA/yazi/flavors/candy-for-gnome-light.yazi")" = candy-for-gnome-nordic-dark.yazi ] && [ "$(rl "$CFGA/kitty/light-theme.auto.conf")" = themes/candy-for-gnome-nordic-dark.conf ] && [ "$(rl "$CFGA/bat/themes/candy-for-gnome-light.tmTheme")" = candy-for-gnome-nordic-dark.tmTheme ] \
+  && chk ok "app themes: a dark-only scheme maps both appearances to its dark file (Yazi, kitty, bat)" || chk fail "dark-only mapping"
+aps just switch-theme gruvbox-material </dev/null >/dev/null 2>&1
+lb="$T/bin-light-apps"; mkdir -p "$lb"; printf '#!/bin/sh\ncase "$1" in get) case "$3" in color-scheme) echo "\x27prefer-light\x27";; *) echo "\x27x\x27";; esac ;; list-schemas) : ;; esac\n' > "$lb/gsettings"; chmod +x "$lb/gsettings"
+ap env CANDY_FOR_GNOME_APPS_PATH="$AB" PATH="$lb:$AB:$PATH" just switch-theme gruvbox-material </dev/null >/dev/null 2>&1
+[ "$(rl "$CFGA/alacritty/themes/candy-for-gnome.toml")" = candy-for-gnome-gruvbox-material-light.toml ] && [ "$(rl "$CFGA/helix/themes/candy-for-gnome.toml")" = candy-for-gnome-gruvbox-material-light.toml ] && grep -q '"base": "light"' "$HA/.claude/themes/candy-for-gnome.json" \
+  && chk ok "app themes: under a light system color scheme Alacritty, Helix and Claude Code follow with the light file (run switch-theme again after changing the setting)" || chk fail "light variant"
+# 5. guard: an unmarked file or a foreign thing under our names is never replaced silently
+rm -f "$CFGA/helix/themes/candy-for-gnome-gruvbox-material-dark.toml"; echo mine > "$CFGA/helix/themes/candy-for-gnome-gruvbox-material-dark.toml"
+out=$(aps just install-theme gruvbox-material </dev/null 2>&1)
+[ "$(cat "$CFGA/helix/themes/candy-for-gnome-gruvbox-material-dark.toml")" = mine ] && printf '%s\n' "$out" | grep -q "Refused: .*helix/themes/candy-for-gnome-gruvbox-material-dark.toml" && chk ok "app themes: an unmarked theme file of our name is left alone (refusal message)" || chk fail "app guard file"
+FORCE=1 aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1; head -1 "$CFGA/helix/themes/candy-for-gnome-gruvbox-material-dark.toml" | grep -qx '# candy-for-gnome: gruvbox-material' && chk ok "app themes: FORCE=1 replaces it" || chk fail "app FORCE"
+rm -f "$CFGA/alacritty/themes/candy-for-gnome.toml"; echo mine > "$CFGA/alacritty/themes/candy-for-gnome.toml"; out=$(aps just switch-theme gruvbox-material </dev/null 2>&1)
+[ ! -L "$CFGA/alacritty/themes/candy-for-gnome.toml" ] && [ "$(cat "$CFGA/alacritty/themes/candy-for-gnome.toml")" = mine ] && printf '%s\n' "$out" | grep -q "Refused: .*alacritty/themes/candy-for-gnome.toml" && chk ok "app themes: a regular file under a managed link name is not replaced without an answer" || chk fail "app guard link"
+rm -f "$CFGA/alacritty/themes/candy-for-gnome.toml"
+echo '{"name": "mine"}' > "$HA/.claude/themes/candy-for-gnome.json"; out=$(aps just switch-theme gruvbox-material </dev/null 2>&1)
+[ "$(cat "$HA/.claude/themes/candy-for-gnome.json")" = '{"name": "mine"}' ] && printf '%s\n' "$out" | grep -q "Refused: .*candy-for-gnome.json" && chk ok "app themes: an unmarked Claude Code theme file of our name is left alone" || chk fail "claude guard"
+# 6. interactive: one question per tool, default no, exact edits
+if command -v script >/dev/null 2>&1; then
+    app_reset; aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1; cfg_snapshot > "$T/apps.before"
+    sw() { printf '%s' "$1" | HOME="$HA" XDG_CONFIG_HOME="$CFGA" XDG_DATA_HOME="$T/adata" THEMES_DEST="$APD" CANDY_FOR_GNOME_APPS_PATH="$AB" PATH="$AB:$PATH" script -qec "tools/themectl.sh themes switch gruvbox-material blue" /dev/null > "$T/apps.tty" 2>&1; }
+    sw $'n\nn\nn\nn\nn\nn\n'; cfg_snapshot > "$T/apps.after"
+    cmp -s "$T/apps.before" "$T/apps.after" && [ -f "$CFGA/eza/theme.yml" ] && [ ! -L "$CFGA/eza/theme.yml" ] && chk ok "app themes interactive: answering n to every question changes no user config" || chk fail "interactive n changed configs"
+    sw $'\n\n\n\n\n\n'; cfg_snapshot > "$T/apps.after"; cmp -s "$T/apps.before" "$T/apps.after" && chk ok "app themes interactive: empty answers are no" || chk fail "interactive empty answer"
+    sw $'y\ny\ny\ny\ny\ny\n'
+    [ "$(cat "$CFGA/alacritty/alacritty.toml")" = "$(printf '[general]\nimport = [\n    "~/.config/alacritty/themes/gruvbox-material-dark.toml",\n    "%s",\n]\n\n[terminal.shell]\nprogram = "/usr/bin/fish"' "$CFGA/alacritty/themes/candy-for-gnome.toml")" ] && chk ok "app themes interactive: Alacritty import array gets exactly one new element after the hand-made one" || chk fail "alacritty edit ($(cat "$CFGA/alacritty/alacritty.toml"))"
+    [ "$(cat "$CFGA/helix/config.toml")" = "$(printf 'theme = "candy-for-gnome"\n\n[editor]\nline-number = "relative"')" ] && chk ok "app themes interactive: Helix theme = line replaced, the rest kept" || chk fail "helix edit"
+    [ "$(cat "$CFGA/yazi/theme.toml")" = "$(printf '[flavor]\ndark = "candy-for-gnome-dark"\nlight = "candy-for-gnome-light"\n\n[status]\nprogress_label = { bold = true }')" ] && chk ok "app themes interactive: Yazi [flavor] dark replaced and light added in the table" || chk fail "yazi edit ($(cat "$CFGA/yazi/theme.toml"))"
+    [ "$(cat "$CFGA/bat/config")" = "$(printf -- '--theme="auto:system"\n--style=numbers\n--theme-dark="candy-for-gnome-dark"\n--theme-light="candy-for-gnome-light"')" ] && chk ok "app themes interactive: bat --theme replaced in place, the two others appended, --style kept" || chk fail "bat edit ($(cat "$CFGA/bat/config"))"
+    [ "$(cat "$CFGA/zellij/config.kdl")" = "$(printf 'theme "gruvbox-material-dark"\nthemes {\n    gruvbox-material-dark { }\n}\ntheme_dark "candy-for-gnome-dark"\ntheme_light "candy-for-gnome-light"')" ] && chk ok "app themes interactive: zellij gets theme_dark and theme_light appended; the theme line and themes block stay" || chk fail "zellij edit ($(cat "$CFGA/zellij/config.kdl"))"
+    [ -L "$CFGA/eza/theme.yml" ] && [ "$(head -1 "$CFGA/eza/theme.yml.candy-bak")" = 'filekinds:' ] && chk ok "app themes interactive: eza's own theme.yml is moved to theme.yml.candy-bak and replaced by the link" || chk fail "eza move aside"
+    cfg_snapshot > "$T/apps.after1"; sw ''; cfg_snapshot > "$T/apps.after2"; cmp -s "$T/apps.after1" "$T/apps.after2" && ! grep -q 'Add\|Set \|Replace' "$T/apps.tty" && chk ok "app themes interactive: nothing is asked again once the lines are there" || chk fail "second run asked or changed ($(cat "$T/apps.tty" | tr -d '\r' | head -5))"
+    # Alacritty: a single-line import array and a file without one
+    printf '[general]\nimport = [ "a.toml" ]\n' > "$CFGA/alacritty/alacritty.toml"; sw $'y\nn\nn\nn\nn\nn\n'; grep -qx "import = \[ \"a.toml\", \"$CFGA/alacritty/themes/candy-for-gnome.toml\" ]" "$CFGA/alacritty/alacritty.toml" && chk ok "app themes interactive: a single-line import array gets the element appended" || chk fail "alacritty single line ($(cat "$CFGA/alacritty/alacritty.toml"))"
+    printf '[font]\nsize = 11\n' > "$CFGA/alacritty/alacritty.toml"; sw $'y\nn\nn\nn\nn\nn\n'; [ "$(cat "$CFGA/alacritty/alacritty.toml")" = "$(printf '[font]\nsize = 11')" ] && grep -q 'Could not edit .* safely' "$T/apps.tty" && chk ok "app themes interactive: no import array to extend: nothing edited, the lines are printed" || chk fail "alacritty no import"
+    # remove: marked files and our links go, the user's configs are not edited, the notes name what remains
+    app_reset; aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1; sw $'y\ny\ny\ny\ny\ny\n'; echo mine > "$CFGA/helix/themes/candy-for-gnome-other.toml"; cfg_snapshot > "$T/apps.before"
+    out=$(aps just remove-theme gruvbox-material </dev/null 2>&1); cfg_snapshot > "$T/apps.after"
+    [ -z "$(find "$CFGA" -name 'candy-for-gnome-gruvbox-material*' -o -type l 2>/dev/null)" ] && [ ! -e "$HA/.claude/themes/candy-for-gnome.json" ] && [ -f "$CFGA/helix/themes/candy-for-gnome-other.toml" ] && [ -f "$CFGA/eza/theme.yml.candy-bak" ] && cmp -s "$T/apps.before" "$T/apps.after" && printf '%s\n' "$out" | grep -q 'still has' \
+      && chk ok "app themes: remove-theme deletes the marked files, the managed links and the Claude file, leaves unrelated files, never edits a config (and says what still mentions candy-for-gnome)" || chk fail "app remove ($(find "$CFGA" -type l -o -name 'candy-for-gnome-*' | tr '\n' ' ') / $out)"
+else echo "  skip interactive app theme tests (script not installed)"; fi
+# 7. a scheme whose name starts with another one: removing catppuccin must not take catppuccin-frappe's link
+app_reset; aps just install-theme catppuccin </dev/null >/dev/null 2>&1; aps just install-theme catppuccin-frappe </dev/null >/dev/null 2>&1; aps just switch-theme catppuccin-frappe </dev/null >/dev/null 2>&1; aps just remove-theme catppuccin </dev/null >/dev/null 2>&1
+[ -L "$CFGA/helix/themes/candy-for-gnome.toml" ] && [ -f "$CFGA/helix/themes/candy-for-gnome-catppuccin-frappe-dark.toml" ] && [ ! -e "$CFGA/helix/themes/candy-for-gnome-catppuccin-dark.toml" ] && [ -L "$CFGA/zellij/themes/candy-for-gnome.kdl" ] && chk ok "app themes: removing catppuccin keeps the links of catppuccin-frappe" || chk fail "prefix scheme link"
+# 8. update refreshes our stale files; the Homebrew bin dir counts as installed
+echo "# stale" >> "$CFGA/helix/themes/candy-for-gnome-catppuccin-frappe-dark.toml"; aps just update-theme </dev/null >/dev/null 2>&1; grep -q stale "$CFGA/helix/themes/candy-for-gnome-catppuccin-frappe-dark.toml" && chk fail "app update did not refresh" || chk ok "app themes: update-theme refreshes our installed files"
+app_reset; BB="$T/brewbin"; mkdir -p "$BB"; printf '#!/bin/sh\nexit 0\n' > "$BB/hx"; chmod +x "$BB/hx"
+CANDY_FOR_GNOME_BREW_BIN="$BB" ap just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+[ -f "$CFGA/helix/themes/candy-for-gnome-gruvbox-material-dark.toml" ] && [ ! -e "$CFGA/alacritty/themes" ] && chk ok "app themes: a binary only in the Homebrew bin dir counts as installed (Helix), the others stay skipped" || chk fail "brew bin"
+# 9. drift: a stale generated file fails the selftest for the app files
+rm -rf "$T/drift2"; mkdir -p "$T/drift2"; cp -r tools nordic "$T/drift2/"; echo '# stale' >> "$T/drift2/nordic/helix/candy-for-gnome-nordic-dark.toml"
+python3 -I "$T/drift2/tools/selftest.py" nordic apps >/dev/null 2>&1 && chk fail "app drift: a stale generated file passed the selftest" || chk ok "app drift: a stale generated file fails the selftest"
+rm -rf "$CFGA" "$HA" "$APD" "$T/adata" "$T/drift2"
 
 # ---- Shell theme without the extension's gsettings schema (it is per user: gsettings does not list it) -----------------------
 echo "=== shell theme via dconf"
