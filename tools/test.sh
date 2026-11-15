@@ -1032,6 +1032,58 @@ grep -q "set org.gnome.desktop.interface icon-theme Adwaita" "$LOG" && [ -z "$(l
 # the picker: Adwaita is the first entry of the switch menu (built-in picker, numbered list without a terminal)
 out=$(printf "1\n" | just switch-theme 2>&1); printf '%s' "$out" | grep -q "1) Adwaita (GNOME default)" && chk ok "the switch-theme list offers Adwaita (GNOME default) first" || chk fail "switch menu: $(printf '%s' "$out" | head -4)"
 
+# ---- grouped icon menus: family, then colour, then style (stub gum with a queue of answers) -----------------------------------------------------
+echo "=== icon families"
+GQ="$T/gum-queue"; GC="$T/gum-calls"; GSB="$T/gum-seq"; mkdir -p "$GSB"
+cat > "$GSB/gum" <<'SH'
+#!/bin/sh
+# stub gum for the grouped menus: every call is appended to $GUMCALLS (CALL, then its arguments), the answer is the first line of the queue $GUMQ
+# (an ERE; all item arguments that match are printed), and the line is consumed
+printf 'CALL\n' >> "$GUMCALLS"; printf '%s\n' "$@" >> "$GUMCALLS"
+pat=$(head -1 "$GUMQ"); sed -i 1d "$GUMQ"
+[ -n "$pat" ] || exit 0
+for a in "$@"; do case "$a" in -*|▸*|◉*|○*) continue ;; esac; if printf '%s' "$a" | grep -Eq "$pat"; then printf '%s\n' "$a"; fi; done
+exit 0
+SH
+chmod +x "$GSB/gum"
+printf 'solo|file:///nonexistent|root|Solo\ncol|file:///nonexistent|script|standard blue red\nmulti|file:///nonexistent|top|Multi Multi-Dark\n' > "$T/fam.conf"
+FD="$T/fam-icons"
+fam_reset() { rm -rf "$FD"; mkdir -p "$FD"; local f; for f in Solo Col Col-dark Col-light Col-blue Col-blue-dark Multi Multi-Dark; do mkdir -p "$FD/$f"; : > "$FD/$f/.candy-for-gnome"; done; : > "$GC"; : > "$LOG"; }
+famrun() {   # famrun ANSWER... -- ARGS: queue the answers, run themectl icons ARGS with the stub gum forced
+    local a; : > "$GQ"; while [ "$1" != -- ]; do printf '%s\n' "$1" >> "$GQ"; shift; done; shift
+    GUMQ="$GQ" GUMCALLS="$GC" THEMES_PICKER=gum PATH="$GSB:$PATH" ICON_SOURCES="$T/fam.conf" ICONS_DEST="$FD" tools/themectl.sh icons "$@" </dev/null 2>&1
+}
+calls_n() { grep -c '^CALL$' "$GC"; }
+fam_reset; famrun '^Col' '^blue' '^dark' -- switch >/dev/null
+grep -q "icon-theme Col-blue-dark" "$LOG" && [ "$(calls_n)" -eq 3 ] && chk ok "switch-icon: family, then colour, then style picks the style folder (Col-blue-dark)" || chk fail "switch families: $(tr '\n' ';' < "$LOG") calls $(calls_n)"
+c1=$(awk '/^CALL$/ {n++} n==1' "$GC" | grep -v '^CALL$' | grep -E '^(Adwaita|Solo|Col|Multi)' | sed 's/  (current)$//' | tr '\n' '|')
+[ "$c1" = "Adwaita (GNOME default)|Solo|Col|Multi|" ] && chk ok "the family picker lists Adwaita (GNOME default) first, then only families with an installed set" || chk fail "family list: $c1"
+c2=$(awk '/^CALL$/ {n++} n==2' "$GC" | grep -v '^CALL$' | grep -E '^(default|blue|red)' | tr '\n' '|'); c3=$(awk '/^CALL$/ {n++} n==3' "$GC" | grep -v '^CALL$' | grep -E '^(standard|dark|light)' | tr '\n' '|')
+[ "$c2" = "default|blue|" ] && [ "$c3" = "standard|dark|" ] && chk ok "the colour picker lists only installed colours (default first), the style picker only installed styles" || chk fail "colour/style lists: $c2 / $c3"
+! awk '/^CALL$/ {n++} n>=1' "$GC" | grep -qE '(✅|🎨|🔄|❗|🧹|❌|🟡|🔁)' && chk ok "no emoji inside the pickers" || chk fail "emoji in a picker"
+fam_reset; famrun '^Solo' -- switch >/dev/null
+grep -q "icon-theme Solo" "$LOG" && [ "$(calls_n)" -eq 1 ] && chk ok "a family with one installed set switches without a second menu" || chk fail "solo family: calls $(calls_n)"
+fam_reset; famrun '^Multi' '^Multi-Dark' -- switch >/dev/null
+grep -q "icon-theme Multi-Dark" "$LOG" && [ "$(calls_n)" -eq 2 ] && chk ok "a family of plain sets lists its installed sets as the second step" || chk fail "multi family: $(tr '\n' ';' < "$LOG") calls $(calls_n)"
+fam_reset; famrun '^Adwaita' -- switch >/dev/null
+grep -q "icon-theme Adwaita" "$LOG" && [ "$(calls_n)" -eq 1 ] && chk ok "Adwaita (GNOME default) in the family picker switches at once" || chk fail "adwaita in family picker"
+fam_reset; : > "$GQ"; out=$(famrun -- switch Col-blue-dark); grep -q "icon-theme Col-blue-dark" "$LOG" && [ "$(calls_n)" -eq 0 ] && chk ok "switch-icon <style folder name> switches directly and skips every menu" || chk fail "direct style name: $out"
+fam_reset; famrun -- switch Col-dark >/dev/null; grep -q "icon-theme Col-dark" "$LOG" && chk ok "switch-icon <set>-dark works when the three folders of a script set exist (the Tela-dark case)" || chk fail "Col-dark direct"
+fam_reset; famrun -- switch Col-light >/dev/null; grep -q "icon-theme Col-light" "$LOG" && chk ok "switch-icon <set>-light works as a direct name" || chk fail "Col-light direct"
+fam_reset; out=$(famrun -- switch Nosuch); printf '%s' "$out" | grep -q "is not an icon set here" && chk ok "the error says 'an icon set' (and 'a theme' for themes)" || chk fail "article: $out"
+fam_reset; famrun -- switch Multi-Dark >/dev/null; grep -q "icon-theme Multi-Dark" "$LOG" && [ "$(calls_n)" -eq 0 ] && chk ok "switch-icon <set name> skips the menus" || chk fail "direct set name"
+out=$(famrun -- switch Col-red); printf '%s' "$out" | grep -q "not installed" && chk ok "a colour that is not installed is refused as before" || chk fail "uninstalled colour: $out"
+fam_reset; out=$(printf '2\n' | ICON_SOURCES="$T/fam.conf" ICONS_DEST="$FD" just switch-icon 2>&1)
+grep -q "icon-theme Solo" "$LOG" && printf '%s' "$out" | grep -q "1) Adwaita (GNOME default)" && printf '%s' "$out" | grep -q "Col-blue" && chk ok "without a terminal the flat numbered list is unchanged (every installed set, Adwaita first)" || chk fail "numbered list: $out"
+fam_reset; famrun '(Col|Multi)$' '(default|blue|red)$' 'Multi$' -- install >/dev/null; cat "$GC" > "$T/fam-install.calls"
+c1=$(awk '/^CALL$/ {n++} n==1' "$GC" | grep -v '^CALL$' | grep -E '^(✓ )?(Solo|Col|Multi)$' | tr '\n' '|'); c2=$(awk '/^CALL$/ {n++} n==2' "$GC" | grep -v '^CALL$' | grep -E '^(✓ )?(default|blue|red)$' | tr '\n' '|'); c3=$(awk '/^CALL$/ {n++} n==3' "$GC" | grep -v '^CALL$' | grep -E '^(✓ )?Multi(-Dark)?$' | tr '\n' '|')
+[ "$c1" = "✓ Solo|✓ Col|✓ Multi|" ] && [ "$c2" = "✓ default|✓ blue|red|" ] && [ "$c3" = "✓ Multi|✓ Multi-Dark|" ] && [ "$(calls_n)" -eq 3 ] && chk ok "install-icon: families first, then the colours (no style rows) and the sets of each ticked family, installed ones marked" || chk fail "install lists: $c1 / $c2 / $c3 ($(calls_n))"
+fam_reset; rm -rf "$FD"/Solo; famrun '^Solo$' -- install | grep -q "Skipping Solo" && [ "$(calls_n)" -eq 1 ] && chk ok "install-icon: a one-set family installs from the first step alone" || chk fail "solo install"
+fam_reset; famrun '^(Col|Solo)( |$)' '^blue' -- remove >/dev/null
+[ ! -e "$FD/Solo" ] && [ ! -e "$FD/Col-blue" ] && [ ! -e "$FD/Col-blue-dark" ] && [ -d "$FD/Col" ] && [ -d "$FD/Col-dark" ] && [ -d "$FD/Multi" ] && [ "$(calls_n)" -eq 2 ] && chk ok "remove-icon: families, then the installed colours of a ticked family; only the ticked ones go" || chk fail "remove grouped: $(ls "$FD" | tr '\n' ' ') calls $(calls_n)"
+fam_reset; famrun -- remove Col-blue >/dev/null; [ ! -e "$FD/Col-blue" ] && [ -d "$FD/Col" ] && [ "$(calls_n)" -eq 0 ] && chk ok "remove-icon <name> skips the menus" || chk fail "direct remove"
+rm -rf "$FD"
+
 # ---- message emojis (terminal only; CANDY_FORCE_EMOJI exists for this test) ------------------------------------------------------------------
 echo "=== message emojis"
 EMO=(✅ 🎨 🔄 ❗ 🧹 ❌ 🟡 🔁)
