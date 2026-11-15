@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: MIT
-# candy-for-gnome: terminal-inspired GNOME themes (one top-level directory per scheme) and icon sets from several icon repos
+# candy-for-gnome: terminal-inspired GNOME themes (one directory per scheme under themes/) and icon sets from several icon repos
 # (tools/icon-sources.conf). Run `just` for the list; every recipe is a thin call into tools/themectl.sh. Needs just, bash, git.
 
 [private]
 default:
     @just --list --unsorted
 
-# Themes: top-level directories of this repo, installed into ~/.themes (THEMES_DEST)
+# Themes: the directories under themes/ of this repo, installed into ~/.themes (THEMES_DEST)
 
 # List the available themes (a check mark = installed)
 [group('themes')]
@@ -66,31 +66,32 @@ generate theme="all":
     #!/usr/bin/env bash
     set -euo pipefail
     export PYTHONDONTWRITEBYTECODE=1
-    if [ "{{theme}}" = all ]; then schemes=$(for f in */scheme.toml; do dirname "$f"; done); else schemes="{{theme}}"; fi
+    if [ "{{theme}}" = all ]; then schemes=$(for f in themes/*/scheme.toml; do basename "$(dirname "$f")"; done); else schemes="{{theme}}"; fi
     [ -n "${CANDY_FOR_GNOME_SKIP_ASSETS:-}" ] || python3 -I tools/assets-gen.py
     for s in $schemes; do
-        echo "== $s"
-        python3 -I tools/palette-from-scheme.py "$s"
-        name=$(awk -F'"' '/^gtk_name/ {print $2}' "$s/palette.toml"); title=$(awk -F'"' '/^title/ {print $2}' "$s/palette.toml")
+        echo "== $s"; d="themes/$s"
+        python3 -I tools/palette-from-scheme.py "$d"
+        name=$(awk -F'"' '/^gtk_name/ {print $2}' "$d/palette.toml"); title=$(awk -F'"' '/^title/ {print $2}' "$d/palette.toml")
         acc=$(mktemp -d)
-        python3 -I tools/gtk3-theme-gen.py --palette="$s/palette.toml" --out="$s/themes/$name/gtk-3.0" --accent-dir="$acc"
-        python3 -I tools/gtk4-theme-gen.py --palette="$s/palette.toml" --out="$s/themes/$name/gtk-4.0" --accent-dir="$acc"
-        python3 -I tools/shell-theme-gen.py --palette="$s/palette.toml" --out="$s/themes" --accent-dir="$acc"
-        python3 -I tools/libadwaita-gen.py --palette="$s/palette.toml" --out="$s/libadwaita/gtk.css" --accent-dir="$acc"
-        printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=%s\nComment=%s recolour of GTK'"'"'s own stock stylesheets (gtk-3.0 from GTK3 Adwaita, gtk-4.0 from GTK4 Default); libadwaita apps use the user-level libadwaita/gtk.css\n' "$name" "$title" > "$s/themes/$name/index.theme"
-        for d in "$s"/themes/*/; do [ -f "$d/LICENSE" ] || cp gruvbox-material/themes/Gruvbox-Material/LICENSE "$d/LICENSE"; done
-        python3 -I tools/accent-maps-gen.py "$s" "$acc"
-        python3 -I tools/gtksourceview-gen.py "$s"
-        python3 -I tools/ghostty-gen.py "$s"
-        python3 -I tools/alacritty-gen.py "$s" >/dev/null
-        python3 -I tools/helix-gen.py "$s" >/dev/null
-        python3 -I tools/yazi-gen.py "$s" >/dev/null
-        python3 -I tools/kitty-gen.py "$s" >/dev/null
-        python3 -I tools/bat-gen.py "$s" >/dev/null
-        python3 -I tools/eza-gen.py "$s" >/dev/null
-        python3 -I tools/zellij-gen.py "$s" >/dev/null
-        python3 -I tools/claude-gen.py "$s" >/dev/null
-        python3 -I tools/palette-svg-gen.py "$s" >/dev/null
+        python3 -I tools/gtk3-theme-gen.py --palette="$d/palette.toml" --out="$d/gtk/$name/gtk-3.0" --accent-dir="$acc"
+        python3 -I tools/gtk4-theme-gen.py --palette="$d/palette.toml" --out="$d/gtk/$name/gtk-4.0" --accent-dir="$acc"
+        python3 -I tools/shell-theme-gen.py --palette="$d/palette.toml" --out="$d/gtk" --accent-dir="$acc"
+        python3 -I tools/libadwaita-gen.py --palette="$d/palette.toml" --out="$d/libadwaita/gtk.css" --accent-dir="$acc"
+        printf '[Desktop Entry]\nType=X-GNOME-Metatheme\nName=%s\nComment=%s recolour of GTK'"'"'s own stock stylesheets (gtk-3.0 from GTK3 Adwaita, gtk-4.0 from GTK4 Default); libadwaita apps use the user-level libadwaita/gtk.css\n' "$name" "$title" > "$d/gtk/$name/index.theme"
+        for g in "$d"/gtk/*/; do [ -f "$g/LICENSE" ] || cp themes/gruvbox-material/gtk/Gruvbox-Material/LICENSE "$g/LICENSE"; done
+        python3 -I tools/accent-maps-gen.py "$d" "$acc"
+        python3 -I tools/gtksourceview-gen.py "$d"
+        python3 -I tools/ghostty-gen.py "$d"
+        python3 -I tools/alacritty-gen.py "$d" >/dev/null
+        python3 -I tools/helix-gen.py "$d" >/dev/null
+        python3 -I tools/yazi-gen.py "$d" >/dev/null
+        python3 -I tools/kitty-gen.py "$d" >/dev/null
+        python3 -I tools/bat-gen.py "$d" >/dev/null
+        python3 -I tools/eza-gen.py "$d" >/dev/null
+        python3 -I tools/zellij-gen.py "$d" >/dev/null
+        python3 -I tools/claude-gen.py "$d" >/dev/null
+        python3 -I tools/palette-svg-gen.py "$d" >/dev/null
+        python3 -I tools/theme-readme-gen.py "$d" >/dev/null
         rm -rf "$acc"
     done
 
@@ -105,9 +106,9 @@ new-scheme dir palette light="":
     #!/usr/bin/env bash
     set -euo pipefail
     light="{{light}}"
-    python3 -I tools/scheme-from-ptyxis.py "{{dir}}" "{{palette}}" ${light:+"$light"}
+    python3 -I tools/scheme-from-ptyxis.py "themes/{{dir}}" "{{palette}}" ${light:+"$light"}
     echo
-    echo "Next: resolve the TODOs in {{dir}}/scheme.toml, then run:"
+    echo "Next: resolve the TODOs in themes/{{dir}}/scheme.toml, then run:"
     echo "  just generate {{dir}} && just test {{dir}} (optionally tools/test.sh {{dir}}; CI on the pull request is the test)"
     echo "and add the credit to NOTICE and the scheme to the list in README.md (see .claude/skills/build-scheme/SKILL.md)."
 

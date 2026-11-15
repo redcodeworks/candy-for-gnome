@@ -35,11 +35,11 @@ app_dir() {   # the config directory of an app
     esac
 }
 app_sub() { case "$1" in yazi) echo flavors ;; *) echo themes ;; esac; }   # where the per-scheme files go inside the config directory
-app_files() { local f; for f in "$root/$2/$1"/*; do [ -e "$f" ] && basename "$f"; done; return 0; }   # generated item names of scheme $2 for app $1
+app_files() { local f; for f in "$(sdir "$2")/$1"/*; do [ -e "$f" ] && basename "$f"; done; return 0; }   # generated item names of scheme $2 for app $1
 app_targets() {   # app_targets APP SCHEME: "<source>|<destination>" for every installed per-scheme file (Claude Code has none: its file is written at switch time)
     local a="$1" s="$2" d f; [ "$a" = claude ] && return 0
     d=$(app_dir "$a") || return 0
-    for f in $(app_files "$a" "$s"); do echo "$root/$s/$a/$f|$d/$(app_sub "$a")/$f"; done; return 0
+    for f in $(app_files "$a" "$s"); do echo "$(sdir "$s")/$a/$f|$d/$(app_sub "$a")/$f"; done; return 0
 }
 app_ours() { pty_ours "$1" "$2"; }   # pty_ours understands the # // and XML markers and directories (flavor.toml)
 app_link_ours() { [ -L "$1" ] && case "$(readlink "$1")" in *candy-for-gnome-*) return 0 ;; esac; return 1; }
@@ -49,7 +49,7 @@ app_tilde() { case "$1" in "$HOME"/*) echo "~/${1#"$HOME"/}" ;; *) echo "$1" ;; 
 app_write() { cat "$2" > "$1" && rm -f "$2"; }   # write through the file (a user config may itself be a link), keeping its inode and mode
 app_pick() {      # app_pick APP SCHEME EXT WANT: WANT (dark|light) when the scheme has that variant, else the other (dark-only / light-only schemes)
     local other=light; [ "$4" = light ] && other=dark
-    if [ -e "$root/$2/$1/candy-for-gnome-$2-$4.$3" ]; then echo "$4"; else echo "$other"; fi
+    if [ -e "$(sdir "$2")/$1/candy-for-gnome-$2-$4.$3" ]; then echo "$4"; else echo "$other"; fi
 }
 app_bat_cache() { local b; b=$(app_bin bat) && "$b" cache --build >/dev/null 2>&1 || true; }
 
@@ -322,8 +322,8 @@ claude_scheme_of() { sed -n 's/.*"name": "candy-for-gnome: \([^ "]*\) .*/\1/p' "
 claude_variant_of() { sed -n 's/.*"name": "candy-for-gnome: [^ "]* \([a-z]*\)".*/\1/p' "$1" | head -n1; }
 claude_switch() {
     local s="$1" d dst src v a; d=$(app_dir claude); dst="$d/themes/candy-for-gnome.json"
-    v=$(pty_mode); [ -f "$root/$s/claude/$s-$v.json" ] || { [ "$v" = dark ] && v=light || v=dark; }   # a dark-only scheme has only the dark file
-    src="$root/$s/claude/$s-$v.json"
+    v=$(pty_mode); [ -f "$troot/$s/claude/$s-$v.json" ] || { [ "$v" = dark ] && v=light || v=dark; }   # a dark-only scheme has only the dark file
+    src="$troot/$s/claude/$s-$v.json"
     [ -f "$src" ] || { echo "Claude Code theme not applied: $s has no generated theme."; return 0; }
     if [ -e "$dst" ] && ! claude_ours "$dst"; then
         a=n; if [ "${FORCE:-}" = 1 ]; then a=y; elif [ "$tty_in" = 1 ]; then read -r -u 3 -p "$dst exists and was not installed by candy-for-gnome. Replace it? [y/N] " a || a=n
@@ -339,7 +339,7 @@ claude_refresh() {   # update: rewrite the switch-time file when it is ours and 
     local s="$1" d dst v; app_present claude || return 0
     d=$(app_dir claude); dst="$d/themes/candy-for-gnome.json"
     claude_ours "$dst" && [ "$(claude_scheme_of "$dst")" = "$s" ] || return 0
-    v=$(claude_variant_of "$dst"); [ -f "$root/$s/claude/$s-$v.json" ] && cp "$root/$s/claude/$s-$v.json" "$dst"
+    v=$(claude_variant_of "$dst"); [ -f "$troot/$s/claude/$s-$v.json" ] && cp "$troot/$s/claude/$s-$v.json" "$dst"
     return 0
 }
 claude_remove() {

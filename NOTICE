@@ -105,7 +105,7 @@ Icon sets (not part of this repository)
 adwaita/zellij: the neutral zellij themes are zellij's own default and default-light themes (zellij-utils/assets/themes in https://github.com/zellij-org/zellij, MIT), renamed to the names the managed config references.
 
 Licences by path
-  themes/<Name>/ and assets/   the generated and recoloured theme files derive from the LGPL works above, so they
+  themes/*/gtk/<Name>/ and assets/   the generated and recoloured theme files derive from the LGPL works above, so they
                    stay under the LGPL: the GTK files LGPL-2.0-or-later (use them under LGPL-2.1-or-later),
                    the GNOME Shell files LGPL-2.1 (version 2.1 only, as in their source header). The LGPL
                    text is the LICENSE file inside each theme folder, so installed copies carry it. Keep
