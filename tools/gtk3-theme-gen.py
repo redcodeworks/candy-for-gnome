@@ -9,8 +9,8 @@ widget (verified 2026-11-07). So this script takes the stock stylesheet
 VERBATIM from libgtk-3 and replaces COLOUR VALUES only (selectors, geometry,
 gradients' structure, url()s untouched).
 
-  python3 -I tools/gtk3-theme-gen.py --palette=gruvbox-material/palette.toml \
-      --out=gruvbox-material/themes/Gruvbox-Material/gtk-3.0     # (just generate gruvbox-material)
+  python3 -I tools/gtk3-theme-gen.py --palette=themes/gruvbox-material/palette.toml \
+      --out=themes/gruvbox-material/gtk/Gruvbox-Material/gtk-3.0     # (just generate gruvbox-material)
   add --check to print stats and write nothing.
 
 Mapping (see docs/theming.md): neutral greys follow a ramp from stock Adwaita
@@ -29,7 +29,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gio, Gtk  # noqa: F401  (importing Gtk registers its resources)
 
-if not arg('out'): sys.exit('usage: gtk3-theme-gen.py --palette=FILE --out=DIR [--accent-dir=DIR] [--check]   (DIR = <theme>/themes/<Name>/gtk-3.0)')
+if not arg('out'): sys.exit('usage: gtk3-theme-gen.py --palette=FILE --out=DIR [--accent-dir=DIR] [--check]   (DIR = themes/<theme>/gtk/<Name>/gtk-3.0)')
 OUT = os.path.abspath(arg('out'))
 RES = '/org/gtk/libgtk/theme/Adwaita/'
 if not arg('palette'): sys.exit('--palette=FILE is required')

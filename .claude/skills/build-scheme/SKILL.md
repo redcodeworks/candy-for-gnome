@@ -1,11 +1,11 @@
 ---
 name: build-scheme
-description: Add a new colour scheme (a new top-level theme directory) to candy-for-gnome. Starts from a Ptyxis built-in palette (by id), then hands off to the deterministic generators. Use when asked to add, port or build a scheme or theme from a colour palette.
+description: Add a new colour scheme (a new directory under `themes/`) to candy-for-gnome. Starts from a Ptyxis built-in palette (by id), then hands off to the deterministic generators. Use when asked to add, port or build a scheme or theme from a colour palette.
 ---
 
 # Add a scheme to candy-for-gnome
 
-A scheme is a top-level directory with one `scheme.toml`; everything else (GTK 3/4, Shell, libadwaita file, accent maps, GtkSourceView styles; the terminal is a Ptyxis built-in, nothing is generated for it) is generated. Your job is only the decisions about colours; the scripts do the rest. Read `CLAUDE.md` first (colour values only, generated files are never hand-edited, structure check stays at 0 differing lines).
+A scheme is a directory `themes/<scheme>/` with one `scheme.toml`; everything else (GTK 3/4, Shell, libadwaita file, accent maps, GtkSourceView styles; the terminal is a Ptyxis built-in, nothing is generated for it) is generated. Your job is only the decisions about colours; the scripts do the rest. Read `CLAUDE.md` first (colour values only, generated files are never hand-edited, structure check stays at 0 differing lines).
 
 ## 1. Decide what you are building
 
@@ -25,8 +25,8 @@ c. **Never invent colours silently.** If the scheme has no orange, no surface st
 ## 3. Draft with the script
 
 ```
-just new-scheme <scheme-dir> "<ptyxis id>" ["<light id>"]
-# = python3 -I tools/scheme-from-ptyxis.py <scheme-dir> <id> [<light-id>]
+just new-scheme <scheme> "<ptyxis id>" ["<light id>"]
+# = python3 -I tools/scheme-from-ptyxis.py themes/<scheme> <id> [<light-id>]
 ```
 
 It writes a DRAFT `<scheme-dir>/scheme.toml` (it refuses to overwrite an existing scheme): Color1-6 become the six accents per variant, Foreground/Background become `fg`/`bg_deep`, black, white, brights or cursor that differ from the defaults go to `[<variant>.terminal]` with `source = "<id>"`, and `ptyxis` / `ptyxis_light` carry the ids. title/gtk_name/shell_name come from the directory name. It prints a `# TODO` list; resolve each item in the file and delete the TODO lines:

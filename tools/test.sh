@@ -116,29 +116,29 @@ if [ "${TEST_ALL:-}" = 1 ]; then full=1; fi
 if [ "${TEST_SCOPE:-}" = featured ]; then featured_only=1; fi
 # Coverage (CLAUDE.md, "CI time and coverage"): see the header. `schemes` is the scope of hygiene, ptyxis-compare and the style check, `cheap_schemes` of
 # regeneration and selftest, `loop_schemes` of the install/switch/update/remove loop; `all_schemes` only feeds the fixtures and the repo-wide checks.
-all_schemes=$(ls -d */palette.toml | cut -d/ -f1)
+all_schemes=$(ls -d themes/*/palette.toml | cut -d/ -f2)
 feat=$(sed -n 's/^FEATURED_THEMES="${FEATURED_THEMES-\(.*\)}"$/\1/p' tools/themectl.sh)
 if [ ${#named[@]} -gt 0 ]; then schemes="${named[*]}"; loop_schemes="$schemes"; cheap_schemes="$schemes"
 elif [ "$full" -eq 1 ]; then schemes="$all_schemes"; loop_schemes="$schemes"; cheap_schemes="$schemes"; echo "coverage: every scheme (--all)"
 elif [ "$featured_only" -eq 1 ]; then
-    schemes=$(for x in $feat; do [ -f "$x/palette.toml" ] && echo "$x"; done); loop_schemes="$schemes"; cheap_schemes="$schemes"
+    schemes=$(for x in $feat; do [ -f "themes/$x/palette.toml" ] && echo "$x"; done); loop_schemes="$schemes"; cheap_schemes="$schemes"
     echo "coverage: the featured schemes only; every scheme with --all or the manual full CI run"
 else
     schemes="$all_schemes"
-    changed=$(git -C "$root" diff --name-only "${TEST_BASE:-origin/main}" HEAD 2>/dev/null | cut -d/ -f1 | sort -u | while read -r x; do [ -f "$x/palette.toml" ] && echo "$x"; done)
+    changed=$(git -C "$root" diff --name-only "${TEST_BASE:-origin/main}" HEAD 2>/dev/null | grep '^themes/' | cut -d/ -f2 | sort -u | while read -r x; do [ -f "themes/$x/palette.toml" ] && echo "$x"; done)
     sha=$(git rev-parse HEAD)
     pick() { for x in $schemes; do case " $feat " in *" $x "*) continue ;; esac; printf '%s %s\n' "$(printf '%s%s%s' "$1" "$sha" "$x" | sha1sum | cut -c1-12)" "$x"; done | sort | head -n "$2" | awk '{print $2}'; }
     nchg=$(echo $changed | wc -w)
     if [ "$nchg" -gt 15 ]; then changed=$(for x in $changed; do printf '%s %s\n' "$(printf 'chg%s%s' "$sha" "$x" | sha1sum | cut -c1-12)" "$x"; done | sort | head -n 15 | awk '{print $2}'); capped=" (a sample of 15 of $nchg changed schemes)"; else capped=""; fi
-    cheap_schemes=$(for x in $feat $changed $(pick loop "$nsample"); do [ -f "$x/palette.toml" ] && echo "$x"; done | awk '!seen[$0]++')
+    cheap_schemes=$(for x in $feat $changed $(pick loop "$nsample"); do [ -f "themes/$x/palette.toml" ] && echo "$x"; done | awk '!seen[$0]++')
     loop_schemes="$cheap_schemes"
     echo "coverage: featured + changed$capped + rotating slice of $nsample; every scheme with --all or the manual full CI run"
 fi
 export SCHEMES="$schemes"
 echo "regeneration, selftest and the install/switch/update/remove loop run for $(echo $loop_schemes | wc -w) of $(echo $all_schemes | wc -w) schemes: $(echo $loop_schemes)"
 for s in $schemes; do
-    for d in $s/themes/*/; do [ -f "$d/LICENSE" ] && chk ok "$d has a LICENSE" || chk fail "$d has no LICENSE"; done
-    while IFS= read -r f; do head -12 "$f" | grep -q "Licen[cs]e" && chk ok "licence line in $f" || chk fail "no licence line in header of $f"; done < <(find "$s/themes" -name '*.css' -not -path '*/assets/*' -not -name 'pad-osd.css')
+    for d in themes/$s/gtk/*/; do [ -f "$d/LICENSE" ] && chk ok "$d has a LICENSE" || chk fail "$d has no LICENSE"; done
+    while IFS= read -r f; do head -12 "$f" | grep -q "Licen[cs]e" && chk ok "licence line in $f" || chk fail "no licence line in header of $f"; done < <(find "themes/$s/gtk" -name '*.css' -not -path '*/assets/*' -not -name 'pad-osd.css')
     if grep -q -i "$s" NOTICE || { grep -q "^$s	" tools/ptyxis-schemes.tsv && grep -q "tools/ptyxis-schemes.tsv" NOTICE; }; then chk ok "NOTICE covers $s"; else chk fail "NOTICE does not cover $s"; fi
 done
 [ -f LICENSE ] && grep -q "MIT License" LICENSE && chk ok "root LICENSE is MIT" || chk fail "root LICENSE"
@@ -150,9 +150,9 @@ cheap_one() {
     out=$(python3 -I tools/selftest.py "$s" all 2>&1); p=$(printf '%s\n' "$out" | grep -c '^PASS'); f=$(printf '%s\n' "$out" | grep -c '^FAIL')
     { echo "=== $s"; echo "  selftest: $p PASS, $f FAIL"; printf '%s\n' "$out" | grep '^FAIL' | head -5
       echo "COUNT $p $f"
-      just generate "$s" >/dev/null 2>&1; d=$(git status --porcelain -- "$s" | grep -vc pycache)
+      just generate "$s" >/dev/null 2>&1; d=$(git status --porcelain -- "themes/$s" | grep -vc pycache)
       if [ "$d" -eq 0 ]; then echo "  PASS regeneration is byte-identical to the committed files ($s)"; echo "COUNT 1 0"
-      else echo "  FAIL regeneration changed $d files of $s (stock stylesheets drifted or a generated file was edited)"; git status --porcelain -- "$s" | head -3; git checkout -q -- "$s"; echo "COUNT 0 1"; fi; } > "$T/cheap-$s.out"
+      else echo "  FAIL regeneration changed $d files of $s (stock stylesheets drifted or a generated file was edited)"; git status --porcelain -- "themes/$s" | head -3; git checkout -q -- "themes/$s"; echo "COUNT 0 1"; fi; } > "$T/cheap-$s.out"
 }
 export -f cheap_one; export T LOG CANDY_FOR_GNOME_SKIP_ASSETS=1   # assets are checked once below, not per scheme
 mkdir -p "$T/cheap"
@@ -166,13 +166,13 @@ for s in $loop_schemes; do
     echo "=== loop $s"
     D="$LT/themes-$s"; THEMES_DEST=$D just install-theme "$s" >/dev/null 2>&1
     n=$(ls "$D" 2>/dev/null | wc -l); [ "$n" -ge 1 ] && chk ok "install-theme: $n folders" || chk fail "install-theme produced nothing"
-    gt=$(awk -F'"' '/^gtk_name/ {print $2}' "$s/palette.toml")
+    gt=$(awk -F'"' '/^gtk_name/ {print $2}' "themes/$s/palette.toml")
     [ -f "$D/$gt/gtk-3.0/assets/check-symbolic.svg" ] && [ -f "$D/$gt/gtk-4.0/assets/check-symbolic.svg" ] && [ ! -L "$D/$gt/gtk-3.0/assets" ] && chk ok "installed theme is complete: real assets directories in gtk-3.0 and gtk-4.0" || chk fail "installed $gt lacks its assets"
-    for a in $(grep -v '^#' "$s/accents/list" | awk 'NF {print $1}'); do
+    for a in $(grep -v '^#' "themes/$s/accents/list" | awk 'NF {print $1}'); do
         : > "$LOG"; THEMES_DEST=$D just switch-theme "$s" "$a" >/dev/null 2>&1; rc=$?
         [ $rc -eq 0 ] && [ "$(grep -c gtk-theme "$LOG")" -ge 1 ] && chk ok "switch-theme $s $a" || chk fail "switch-theme $s $a (rc=$rc)"
     done
-    last=$(grep -v '^#' "$s/accents/list" | awk 'NF {print $1}' | tail -1); st=$(grep "^$s=" "$T/state/candy-for-gnome/accents" 2>/dev/null | cut -d= -f2)
+    last=$(grep -v '^#' "themes/$s/accents/list" | awk 'NF {print $1}' | tail -1); st=$(grep "^$s=" "$T/state/candy-for-gnome/accents" 2>/dev/null | cut -d= -f2)
     [ "$st" = "$last" ] && chk ok "accent remembered ($st)" || chk fail "accent state '$st' != '$last'"
     h1=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum); THEMES_DEST=$D just update-theme >/dev/null 2>&1; h2=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum)   # the marker carries updated_at, which moves on purpose
     [ "$h1" = "$h2" ] && chk ok "update-theme keeps the remembered accent" || chk fail "update-theme changed the installed tree"
@@ -183,7 +183,7 @@ done
 # ---- shared assets: the repo stores GTK's stock assets once (assets/gtk-3.0, assets/gtk-4.0); installs copy them into each theme ---------
 echo "=== shared assets"
 python3 -I tools/assets-gen.py --check >/dev/null 2>&1 && chk ok "assets/ match the installed GTK's stock assets" || chk fail "assets/ differ from GTK's stock assets (run just generate)"
-[ -z "$(ls -d */themes/*/gtk-*/assets 2>/dev/null)" ] && chk ok "no scheme carries its own copy of the assets" || chk fail "per-scheme assets directories exist"
+[ -z "$(ls -d themes/*/gtk/*/gtk-*/assets 2>/dev/null)" ] && chk ok "no scheme carries its own copy of the assets" || chk fail "per-scheme assets directories exist"
 
 # ---- every scheme: Ptyxis declarations and the inventory (tools/ptyxis-schemes.tsv) ----------------------------------------
 echo "=== ptyxis-compare and inventory"
@@ -266,6 +266,10 @@ SCROLL_THEMES="$T/scroll-themes"; mkdir -p "$SCROLL_THEMES"
 THEMES_DEST=$SCROLL_THEMES python3 -I tools/pty-scroll-test.py 10 24 > "$T/scroll.out" 2>&1 && chk ok "built-in picker: the cursor row stays on screen and the window scrolls by at most one row per key (10 and 24 rows, filter, resize, Home/End/PgUp/PgDn)" || { chk fail "pty scroll test"; grep -B1 -A12 FAIL "$T/scroll.out" | head -30; }
 
 # ---- collision guard (themes): unrelated folders with our names are never replaced or removed without asking ---------
+echo "=== repository documentation is not installed"
+NI="$T/noinstall"; mkdir -p "$NI"; THEMES_DEST=$NI just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+[ -d "$NI/Gruvbox-Material" ] && [ -z "$(find "$NI" -name 'README.md' -o -name 'palette-*.svg' -o -name scheme.toml -o -name palette.toml | head -1)" ] && chk ok "install-theme copies only the gtk folders: no README.md, palette picture, scheme.toml or palette.toml lands in the destination" || chk fail "documentation was installed: $(find "$NI" -name 'README.md' -o -name 'palette-*.svg' | head -3)"
+rm -rf "$NI"
 echo "=== collision guard"
 G="$T/guard-themes"; mkdir -p "$G/Dracula"; echo mine > "$G/Dracula/mine.txt"; printf '[Desktop Entry]\nName=Dracula\n' > "$G/Dracula/index.theme"
 out=$(THEMES_DEST=$G just install-theme dracula </dev/null 2>&1); rc=$?
@@ -279,10 +283,10 @@ FORCE=1 THEMES_DEST=$G just install-theme dracula </dev/null >/dev/null 2>&1
 [ ! -e "$G/Dracula/mine.txt" ] && [ -f "$G/Dracula/.candy-for-gnome" ] && chk ok "FORCE=1 replaces the unrelated folder and marks it" || chk fail "FORCE=1 did not replace"
 echo stale > "$G/Dracula/stale.txt"; out=$(THEMES_DEST=$G just install-theme dracula </dev/null 2>&1)
 [ ! -e "$G/Dracula/stale.txt" ] && ! printf '%s\n' "$out" | grep -q "not installed by" && chk ok "a marked folder is replaced silently" || chk fail "marked folder not replaced silently"
-L="$T/guard-legacy"; mkdir -p "$L"; cp -a dracula/themes/Dracula "$L/Dracula"; echo stale > "$L/Dracula/stale.txt"
+L="$T/guard-legacy"; mkdir -p "$L"; cp -a themes/dracula/gtk/Dracula "$L/Dracula"; echo stale > "$L/Dracula/stale.txt"
 out=$(THEMES_DEST=$L just install-theme dracula </dev/null 2>&1)
 [ ! -e "$L/Dracula/stale.txt" ] && [ -f "$L/Dracula/.candy-for-gnome" ] && ! printf '%s\n' "$out" | grep -q "not installed by" && chk ok "a pre-marker installation (identical index.theme) is adopted" || chk fail "legacy installation not adopted"
-O="$T/guard-oldname"; mkdir -p "$O/Other" "$O/Dracula"; cp -a dracula/themes/Dracula/. "$O/Dracula/"; echo dracula > "$O/Dracula/.gnome-themes"; echo stale > "$O/Dracula/stale.txt"; echo x > "$O/Other/.gnome-themes"
+O="$T/guard-oldname"; mkdir -p "$O/Other" "$O/Dracula"; cp -a themes/dracula/gtk/Dracula/. "$O/Dracula/"; echo dracula > "$O/Dracula/.gnome-themes"; echo stale > "$O/Dracula/stale.txt"; echo x > "$O/Other/.gnome-themes"
 out=$(THEMES_DEST=$O just install-theme dracula </dev/null 2>&1)
 [ ! -e "$O/Dracula/stale.txt" ] && [ ! -e "$O/Dracula/.gnome-themes" ] && grep -qx 'schema=1' "$O/Dracula/.candy-for-gnome" && grep -q '^installed_at=' "$O/Dracula/.candy-for-gnome" && ! printf '%s\n' "$out" | grep -qi 'refused\|old project\|leftover\|not installed by' && chk ok "old-name marker: a same-named folder is replaced on install, adopted with the new marker, no question and no message" || chk fail "old-marker folder not replaced/adopted: $out"
 [ -f "$O/Other/.gnome-themes" ] && [ ! -e "$O/Other/.candy-for-gnome" ] && ! printf '%s\n' "$out" | grep -q 'Other' && chk ok "old-name marker: an old-marker folder that matches nothing is left alone and not mentioned" || chk fail "unmatched old-marker folder touched or mentioned"
@@ -322,12 +326,12 @@ for s in ('gruvbox-material', 'dracula', 'nordic', 'solarized'):
         if not open(f).read().startswith('# candy-for-gnome: %s\n' % s): bad.append(f + ': marker')
 S, roles, _ = sr.load('solarized')
 if pal('solarized/ghostty/candy-for-gnome-solarized-dark')[1] != '#839496' or roles['dark']['fg'].lower() == '#839496': bad.append('solarized dark: nudge not reverted to the built-in foreground')
-if open('nordic/ghostty/nordic.conf').read().split('\n')[1] != 'theme = dark:candy-for-gnome-nordic-dark,light:candy-for-gnome-nordic-dark': bad.append('nordic.conf (dark-only) pair line')
-if open('dracula/ghostty/dracula.conf').read().split('\n')[1] != 'theme = dark:candy-for-gnome-dracula-dark,light:candy-for-gnome-dracula-light': bad.append('dracula.conf pair line')
+if open('themes/nordic/ghostty/nordic.conf').read().split('\n')[1] != 'theme = dark:candy-for-gnome-nordic-dark,light:candy-for-gnome-nordic-dark': bad.append('nordic.conf (dark-only) pair line')
+if open('themes/dracula/ghostty/dracula.conf').read().split('\n')[1] != 'theme = dark:candy-for-gnome-dracula-dark,light:candy-for-gnome-dracula-light': bad.append('dracula.conf pair line')
 print('\n'.join(bad)); sys.exit(1 if bad else 0)
 PY
 out=$(python3 -I "$T/ghcheck.py" 2>&1) && chk ok "ghostty: generated files match the Ptyxis-derived colours (dark, light, dark-only, nudged Solarized), markers, pair lines" || chk fail "ghostty generation: $out"
-rm -rf "$T/drift"; mkdir -p "$T/drift"; cp -r tools nordic "$T/drift/"; echo '# stale' >> "$T/drift/nordic/ghostty/candy-for-gnome-nordic-dark"
+rm -rf "$T/drift"; mkdir -p "$T/drift/themes"; cp -r tools "$T/drift/"; cp -r themes/nordic "$T/drift/themes/"; echo '# stale' >> "$T/drift/themes/nordic/ghostty/candy-for-gnome-nordic-dark"
 python3 -I "$T/drift/tools/selftest.py" nordic ghostty >/dev/null 2>&1 && chk fail "ghostty drift: a stale generated file passed the selftest" || chk ok "ghostty drift: a stale generated file fails the selftest"
 GH="$T/ghtest"; rm -rf "$GH" "$T/gdata"; mkdir -p "$GH"; GCFG="$T/cfg/ghostty"; rm -rf "$GCFG"
 gt() { XDG_DATA_HOME="$T/gdata" THEMES_DEST="$GH" "$@"; }
@@ -466,7 +470,7 @@ app_reset; BB="$T/brewbin"; mkdir -p "$BB"; printf '#!/bin/sh\nexit 0\n' > "$BB/
 CANDY_FOR_GNOME_BREW_BIN="$BB" ap just install-theme gruvbox-material </dev/null >/dev/null 2>&1
 [ -f "$CFGA/helix/themes/candy-for-gnome-gruvbox-material-dark.toml" ] && [ ! -e "$CFGA/alacritty/themes" ] && chk ok "app themes: a binary only in the Homebrew bin dir counts as installed (Helix), the others stay skipped" || chk fail "brew bin"
 # 9. drift: a stale generated file fails the selftest for the app files
-rm -rf "$T/drift2"; mkdir -p "$T/drift2"; cp -r tools nordic "$T/drift2/"; echo '# stale' >> "$T/drift2/nordic/helix/candy-for-gnome-nordic-dark.toml"
+rm -rf "$T/drift2"; mkdir -p "$T/drift2/themes"; cp -r tools "$T/drift2/"; cp -r themes/nordic "$T/drift2/themes/"; echo '# stale' >> "$T/drift2/themes/nordic/helix/candy-for-gnome-nordic-dark.toml"
 python3 -I "$T/drift2/tools/selftest.py" nordic apps >/dev/null 2>&1 && chk fail "app drift: a stale generated file passed the selftest" || chk ok "app drift: a stale generated file fails the selftest"
 rm -rf "$CFGA" "$HA" "$APD" "$T/adata" "$T/drift2"
 
@@ -672,15 +676,15 @@ GMB="$T/fix-gm"; mkdir -p "$GMB"   # a stand-in for the Ptyxis built-in (flat, d
 { printf '[Palette]\nName=Gruvbox Material\nPrimary=true\nForeground=#D4BE98\nBackground=#282828\nCursor=#D4BE98\n'
   i=0; for c in 3C3836 EA6962 A9B665 D8A657 7DAEA3 D3869B 89B482 D4BE98 3C3836 EA6962 A9B665 D8A657 7DAEA3 D3869B 89B482 D4BE98; do printf 'Color%d=#%s\n' "$i" "$c"; i=$((i+1)); done; } > "$GMB/Gruvbox Material.palette"
 gmc() { PTYXIS_BIN="$GMB" python3 -I tools/ptyxis-compare.py --check zz-gm 2>/dev/null; }
-rm -rf zz-gm; mkdir zz-gm; cp gruvbox-material/scheme.toml zz-gm/
+rm -rf zz-gm; mkdir zz-gm; cp themes/gruvbox-material/scheme.toml zz-gm/
 out=$(gmc); [ -z "$out" ] && chk ok "ptyxis-compare: the decided gruvbox-material brights are accepted (and the light variant, which has no built-in, is not compared)" || chk fail "ptyxis-compare rejects the decided brights: $out"
 sed -i '/^ptyxis_brights_differ/d' zz-gm/scheme.toml; gmc | grep -q "Color9 .* differs" && chk ok "ptyxis-compare: without ptyxis_brights_differ the brights are reported" || chk fail "brights not reported without the key"
-awk '/^\[dark.ansi\]/ {d=1} d && /^green = / && !x {sub(/#[0-9a-f]{6}/, "#a9b666"); x=1} {print}' gruvbox-material/scheme.toml > zz-gm/scheme.toml
+awk '/^\[dark.ansi\]/ {d=1} d && /^green = / && !x {sub(/#[0-9a-f]{6}/, "#a9b666"); x=1} {print}' themes/gruvbox-material/scheme.toml > zz-gm/scheme.toml
 gmc | grep -q "Color2 .* differs" && chk ok "ptyxis-compare: any other difference of the scheme (a standard color) is still reported" || chk fail "other difference not reported"
-cp gruvbox-material/scheme.toml zz-gm/; sed -i '/^\[dark.terminal\]/,/^\[light.terminal\]/{s/^bright_red = .*/bright_red = "#ea6962"/; s/^bright_green = .*/bright_green = "#a9b665"/; s/^bright_yellow = .*/bright_yellow = "#d8a657"/; s/^bright_blue = .*/bright_blue = "#7daea3"/; s/^bright_magenta = .*/bright_magenta = "#d3869b"/; s/^bright_cyan = .*/bright_cyan = "#89b482"/; s/^bright_black = .*/bright_black = "#3c3836"/; s/^bright_white = .*/bright_white = "#d4be98"/}' zz-gm/scheme.toml
+cp themes/gruvbox-material/scheme.toml zz-gm/; sed -i '/^\[dark.terminal\]/,/^\[light.terminal\]/{s/^bright_red = .*/bright_red = "#ea6962"/; s/^bright_green = .*/bright_green = "#a9b665"/; s/^bright_yellow = .*/bright_yellow = "#d8a657"/; s/^bright_blue = .*/bright_blue = "#7daea3"/; s/^bright_magenta = .*/bright_magenta = "#d3869b"/; s/^bright_cyan = .*/bright_cyan = "#89b482"/; s/^bright_black = .*/bright_black = "#3c3836"/; s/^bright_white = .*/bright_white = "#d4be98"/}' zz-gm/scheme.toml
 gmc | grep -q "stale" && chk ok "ptyxis-compare: ptyxis_brights_differ with equal brights is reported as stale" || chk fail "stale brights key not reported"
 rm -rf zz-gm
-mkdir zz-ef && cp everforest/scheme.toml zz-ef/
+mkdir zz-ef && cp themes/everforest/scheme.toml zz-ef/
 EVER="$T/fix-ever"; mkdir -p "$EVER"
 python3 -I - "$EVER" <<'PY'
 import sys; sys.path.insert(0, 'tools'); import schemeroles as sr
@@ -698,12 +702,12 @@ sed -i 's/^ptyxis = .*/ptyxis = "Everforestt"/' zz-ef/scheme.toml
 out=$(cchk); printf '%s\n' "$out" | grep -q 'is not a Ptyxis built-in id' && chk ok "ptyxis-compare --check: a declared id that is not in the binary is flagged" || chk fail "ptyxis-compare: unknown id accepted ($out)"
 sed -i 's/^ptyxis = .*/ptyxis = "everforest"/' zz-ef/scheme.toml
 out=$(cchk); printf '%s\n' "$out" | grep -q 'did you mean "Everforest"' && chk ok "ptyxis-compare --check: a wrong-case id is flagged with the right one (ids are case-sensitive)" || chk fail "ptyxis-compare: wrong case accepted ($out)"
-cp everforest/scheme.toml zz-ef/scheme.toml; sed -i 's/^ptyxis = .*/&\nptyxis_light = "Everforest"/' zz-ef/scheme.toml
+cp themes/everforest/scheme.toml zz-ef/scheme.toml; sed -i 's/^ptyxis = .*/&\nptyxis_light = "Everforest"/' zz-ef/scheme.toml
 out=$(cchk); printf '%s\n' "$out" | grep -q 'covers both modes' && chk ok "ptyxis-compare --check: ptyxis_light next to a sectioned built-in is flagged" || chk fail "ptyxis-compare: ptyxis_light on a sectioned built-in accepted ($out)"
-cp everforest/scheme.toml zz-ef/scheme.toml; sed -i '/^ptyxis_reason/d' zz-ef/scheme.toml
+cp themes/everforest/scheme.toml zz-ef/scheme.toml; sed -i '/^ptyxis_reason/d' zz-ef/scheme.toml
 out=$(cchk); printf '%s\n' "$out" | grep -q 'ptyxis_reason missing' && chk ok "ptyxis-compare --check: a missing ptyxis_reason is flagged" || chk fail "ptyxis-compare: missing reason accepted"
 # two flat built-ins (catppuccin): ptyxis + ptyxis_light
-mkdir zz-cat && cp catppuccin/scheme.toml zz-cat/; CAT="$T/fix-cat"; mkdir -p "$CAT"
+mkdir zz-cat && cp themes/catppuccin/scheme.toml zz-cat/; CAT="$T/fix-cat"; mkdir -p "$CAT"
 python3 -I - "$CAT" <<'PY'
 import sys; sys.path.insert(0, 'tools'); import schemeroles as sr
 S, roles, slots = sr.load('zz-cat')
@@ -716,9 +720,9 @@ sed -i 's/^ptyxis_light = .*/ptyxis_light = "Catppuccin Latté"/' zz-cat/scheme.
 out=$(PTYXIS_BIN="$CAT" python3 -I tools/ptyxis-compare.py --check zz-cat 2>/dev/null); printf '%s\n' "$out" | grep -q 'ptyxis_light = "Catppuccin Latté" is not' && chk ok "ptyxis-compare --check: a bad ptyxis_light id is flagged (UTF-8 output)" || chk fail "ptyxis-compare: bad ptyxis_light accepted ($out)"
 rm -rf zz-cat
 # ptyxis-compare --check, the source rules: every variant names its source; a listed nudge must be true; a difference from the built-in is information only
-cp everforest/scheme.toml zz-ef/scheme.toml
+cp themes/everforest/scheme.toml zz-ef/scheme.toml
 nud() {   # nud <fg hex> <extra nudge lines>: zz-ef/scheme.toml from everforest with the dark fg changed, then a [dark.nudge] table
-    cp everforest/scheme.toml zz-ef/scheme.toml
+    cp themes/everforest/scheme.toml zz-ef/scheme.toml
     python3 -I - "$1" "$2" <<'PY'
 import sys, re
 t = open('zz-ef/scheme.toml', encoding='utf-8').read()
@@ -744,20 +748,20 @@ nud '#ffffff' "Foreground = { from = \"#d3c6aa\", to = \"#ffffff\", de = 21.0, w
 out=$(cchk); printf '%s\n' "$out" | grep -q 'NUDGE_MAX' && chk ok "ptyxis-compare --check: a nudge above NUDGE_MAX is flagged" || chk fail "ptyxis-compare: oversized nudge accepted ($out)"
 nud '#d3c6aa' "Foreground = { from = \"#d3c6aa\", to = \"#d3c6aa\", de = 0.0, why = \"fixture: stale entry\" }"
 out=$(cchk); printf '%s\n' "$out" | grep -q 'stale' && chk ok "ptyxis-compare --check: a listed nudge for a colour that no longer differs is flagged (stale)" || chk fail "ptyxis-compare: stale nudge accepted ($out)"
-cp everforest/scheme.toml zz-ef/scheme.toml; sed -i '/^source = /d' zz-ef/scheme.toml
+cp themes/everforest/scheme.toml zz-ef/scheme.toml; sed -i '/^source = /d' zz-ef/scheme.toml
 out=$(cchk); printf '%s\n' "$out" | grep -q 'exactly one of source' && chk ok "ptyxis-compare --check: a variant without source or no_builtin is flagged" || chk fail "ptyxis-compare: missing source accepted ($out)"
-cp everforest/scheme.toml zz-ef/scheme.toml
+cp themes/everforest/scheme.toml zz-ef/scheme.toml
 # a sectioned built-in for a dark-only scheme needs the acceptance flag (Nordic with Nord)
 if [ -r "/usr/bin/ptyxis" ] && tools/ptyxis-palette.sh show nord >/dev/null 2>&1; then
     python3 -I tools/ptyxis-compare.py --check nordic >/dev/null 2>&1 && chk ok "ptyxis-compare --check: Nordic on the sectioned nord built-in passes (accepted light section)" || chk fail "ptyxis-compare: nordic"
-    mkdir zz-nd && sed '/^ptyxis_light_section_accepted/d' nordic/scheme.toml > zz-nd/scheme.toml
+    mkdir zz-nd && sed '/^ptyxis_light_section_accepted/d' themes/nordic/scheme.toml > zz-nd/scheme.toml
     out=$(python3 -I tools/ptyxis-compare.py --check zz-nd 2>/dev/null); printf '%s\n' "$out" | grep -q 'ptyxis_light_section_accepted' && chk ok "ptyxis-compare --check: a sectioned built-in for a dark-only scheme is refused without the acceptance flag" || chk fail "ptyxis-compare: sectioned built-in accepted for dark-only ($out)"
     rm -rf zz-nd
 else echo "  SKIP Nordic/nord checks (no Ptyxis binary here)"; fi
 # the built-in is the only source: an "official:" source, builtin_differs and a source that is not the declared id are flagged
-cp everforest/scheme.toml zz-ef/scheme.toml; sed -i '0,/^source = .*/s//source = "official: fixture\/repo, verified 2026-11-07"/' zz-ef/scheme.toml
+cp themes/everforest/scheme.toml zz-ef/scheme.toml; sed -i '0,/^source = .*/s//source = "official: fixture\/repo, verified 2026-11-07"/' zz-ef/scheme.toml
 out=$(cchk); printf '%s\n' "$out" | grep -q 'not the id declared for this variant' && chk ok "ptyxis-compare --check: an official-style source (not the declared built-in id) is flagged" || chk fail "ptyxis-compare: official source accepted ($out)"
-cp everforest/scheme.toml zz-ef/scheme.toml; sed -i '0,/^source = .*/s//&\nbuiltin_differs = { name = "Everforest", de = 9.9, note = "fixture: official wins" }/' zz-ef/scheme.toml
+cp themes/everforest/scheme.toml zz-ef/scheme.toml; sed -i '0,/^source = .*/s//&\nbuiltin_differs = { name = "Everforest", de = 9.9, note = "fixture: official wins" }/' zz-ef/scheme.toml
 out=$(cchk); printf '%s\n' "$out" | grep -q 'builtin_differs is gone' && chk ok "ptyxis-compare --check: builtin_differs is flagged (the mechanism is gone)" || chk fail "ptyxis-compare: builtin_differs accepted ($out)"
 rm -rf zz-ef
 just --summary 2>/dev/null | grep -q new-scheme && chk fail "new-scheme became a public recipe" || chk ok "new-scheme is private (public set unchanged)"
@@ -977,7 +981,7 @@ echo "$out" | grep -q '\[ \]' && ! echo "$out" | grep -q '\[x\]' && chk ok "them
 echo "$out" | grep -q 'SPACE toggles' && chk ok "checklist hint says SPACE toggles" || chk fail "checklist hint"
 [ "$(n_inst "$PD")" -eq 0 ] && echo "$out" | grep -q Cancelled && chk ok "q cancels, nothing installed" || chk fail "q did not cancel"
 THEMES_DEST=$PD pty n,down,space,enter tools/themectl.sh themes install >/dev/null
-first_sc=$(sed -n 's/^FEATURED_THEMES="${FEATURED_THEMES-\(.*\)}"$/\1/p' tools/themectl.sh | awk '{print $2}'); gname=$(awk -F'"' '/^gtk_name/ {print $2}' "$first_sc/palette.toml")
+first_sc=$(sed -n 's/^FEATURED_THEMES="${FEATURED_THEMES-\(.*\)}"$/\1/p' tools/themectl.sh | awk '{print $2}'); gname=$(awk -F'"' '/^gtk_name/ {print $2}' "themes/$first_sc/palette.toml")
 [ -d "$PD/$gname" ] && chk ok "none, down, SPACE ticks one entry, ENTER installs it ($first_sc)" || chk fail "space did not tick the second entry"
 PF="$T/pty-filter"; mkdir -p "$PF"
 THEMES_DEST=$PF pty slash,D,R,A,C,enter,space,enter tools/themectl.sh themes install >/dev/null

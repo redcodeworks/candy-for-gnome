@@ -16,8 +16,8 @@ shared with tools/gtk3-theme-gen.py (tools/themegen.py). Modern relative-colour 
 only the origin colour X is recoloured. @define-color names are recoloured too (GTK4 keeps
 them for compatibility, but the rules do not read them).
 
-  python3 -I tools/gtk4-theme-gen.py --palette=gruvbox-material/palette.toml \
-      --out=gruvbox-material/themes/Gruvbox-Material/gtk-4.0     # (just generate gruvbox-material)
+  python3 -I tools/gtk4-theme-gen.py --palette=themes/gruvbox-material/palette.toml \
+      --out=themes/gruvbox-material/gtk/Gruvbox-Material/gtk-4.0     # (just generate gruvbox-material)
   add --check to print stats and write nothing.
 
 The palette is the same file as for GTK3 (stock GTK4 greys, blue #15539e, red #cc0000 and
@@ -31,7 +31,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 from gi.repository import Gio, Gtk  # noqa: F401  (importing Gtk registers its resources)
 
-if not arg('out'): sys.exit('usage: gtk4-theme-gen.py --palette=FILE --out=DIR [--accent-dir=DIR] [--check]   (DIR = <theme>/themes/<Name>/gtk-4.0)')
+if not arg('out'): sys.exit('usage: gtk4-theme-gen.py --palette=FILE --out=DIR [--accent-dir=DIR] [--check]   (DIR = themes/<theme>/gtk/<Name>/gtk-4.0)')
 OUT = os.path.abspath(arg('out'))
 RES = '/org/gtk/libgtk/theme/Default/'
 if not arg('palette'): sys.exit('--palette=FILE is required')

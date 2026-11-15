@@ -197,8 +197,8 @@ def terminal_problems(scheme_dir):
 def main():
     root = os.path.join(HERE, '..')
     args = [a for a in sys.argv[1:] if not a.startswith('-')]
-    schemes = args or sorted(os.path.basename(os.path.dirname(p)) for p in glob.glob(os.path.join(root, '*', 'scheme.toml')))
-    path = lambda s: s if os.path.isdir(s) else os.path.join(root, s)
+    schemes = args or sorted(os.path.basename(os.path.dirname(p)) for p in glob.glob(os.path.join(root, 'themes', '*', 'scheme.toml')))
+    path = lambda s: s if os.path.isdir(s) else os.path.join(root, 'themes', s)
     sys.stdout.reconfigure(encoding='utf-8'); sys.stderr.reconfigure(encoding='utf-8')
     if '--check' in sys.argv:
         bad = []

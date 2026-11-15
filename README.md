@@ -63,39 +63,39 @@ Icon sets: Papirus, Gruvbox Plus, Zafiro, candy, Tela, Fluent, Conflux and White
 
 ## Palettes
 
-The terminal colors of the featured themes (the other themes have the same picture in their folder, `<theme>/palette-dark.svg`):
+The terminal colors of the featured themes (every theme has its own folder under `themes/` with these pictures and a short page):
 
 **nordic**
 
-<img src="nordic/palette-dark.svg" alt="nordic dark palette" width="400">
+<img src="themes/nordic/palette-dark.svg" alt="nordic dark palette" width="400">
 
 **gruvbox-material**
 
-<img src="gruvbox-material/palette-dark.svg" alt="gruvbox-material dark palette" width="400"> <img src="gruvbox-material/palette-light.svg" alt="gruvbox-material light palette" width="400">
+<img src="themes/gruvbox-material/palette-dark.svg" alt="gruvbox-material dark palette" width="400"> <img src="themes/gruvbox-material/palette-light.svg" alt="gruvbox-material light palette" width="400">
 
 **everforest**
 
-<img src="everforest/palette-dark.svg" alt="everforest dark palette" width="400"> <img src="everforest/palette-light.svg" alt="everforest light palette" width="400">
+<img src="themes/everforest/palette-dark.svg" alt="everforest dark palette" width="400"> <img src="themes/everforest/palette-light.svg" alt="everforest light palette" width="400">
 
 **tokyo-night**
 
-<img src="tokyo-night/palette-dark.svg" alt="tokyo-night dark palette" width="400"> <img src="tokyo-night/palette-light.svg" alt="tokyo-night light palette" width="400">
+<img src="themes/tokyo-night/palette-dark.svg" alt="tokyo-night dark palette" width="400"> <img src="themes/tokyo-night/palette-light.svg" alt="tokyo-night light palette" width="400">
 
 **dracula**
 
-<img src="dracula/palette-dark.svg" alt="dracula dark palette" width="400"> <img src="dracula/palette-light.svg" alt="dracula light palette" width="400">
+<img src="themes/dracula/palette-dark.svg" alt="dracula dark palette" width="400"> <img src="themes/dracula/palette-light.svg" alt="dracula light palette" width="400">
 
 **fairy-floss**
 
-<img src="fairy-floss/palette-dark.svg" alt="fairy-floss dark palette" width="400">
+<img src="themes/fairy-floss/palette-dark.svg" alt="fairy-floss dark palette" width="400">
 
 **catppuccin**
 
-<img src="catppuccin/palette-dark.svg" alt="catppuccin dark palette" width="400"> <img src="catppuccin/palette-light.svg" alt="catppuccin light palette" width="400">
+<img src="themes/catppuccin/palette-dark.svg" alt="catppuccin dark palette" width="400"> <img src="themes/catppuccin/palette-light.svg" alt="catppuccin light palette" width="400">
 
 **aubergine**
 
-<img src="aubergine/palette-dark.svg" alt="aubergine dark palette" width="400">
+<img src="themes/aubergine/palette-dark.svg" alt="aubergine dark palette" width="400">
 
 ## Ghostty
 
@@ -148,7 +148,7 @@ The contributor workflow and design notes are in `CLAUDE.md`. The palette pictur
 ## License and credits
 
 Tooling and docs are MIT (`LICENSE`). The generated theme files derive from GTK's and GNOME Shell's stock
-stylesheets and stay LGPL: each `*/themes/<Name>/` folder carries its own `LICENSE`. Palette credits and
+stylesheets and stay LGPL: each `themes/*/gtk/<Name>/` folder carries its own `LICENSE`. Palette credits and
 the exact split are in `NOTICE`. Icon sets are not part of this repository: they are downloaded from their own
 projects when you install them and keep their own licenses (Conflux is GPL-3.0, by Moshiur Rahman Adib and contributors; WhiteSur is GPL-3.0, by Vince Liuice).
 
