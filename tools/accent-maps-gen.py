@@ -29,8 +29,8 @@ names = list(next(iter(M['accents'].values())))
 
 def default_path(rel):
     if rel.startswith('libadwaita/'): return d + '/libadwaita/gtk.css'
-    if rel.startswith('gtk-'): return '%s/themes/%s/%s' % (d, M['gtk_name'], rel)
-    return '%s/themes/%s' % (d, rel)
+    if rel.startswith('gtk-'): return '%s/gtk/%s/%s' % (d, M['gtk_name'], rel)
+    return '%s/gtk/%s' % (d, rel)
 def variant(rel):
     if rel.startswith('libadwaita/'): return 'both'
     if rel.endswith('gtk-dark.css') or '-Dark/' in rel: return 'dark'

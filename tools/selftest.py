@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Self-test of a generated scheme (development; `just test <scheme>`). Needs python3-gobject, GTK 3, GTK 4, gnome-shell.
 
-  python3 -I tools/selftest.py <scheme> [contrast|gtk3|gtk4|shell|ghostty|apps|palette|all]
+  python3 -I tools/selftest.py <scheme> [contrast|gtk3|gtk4|shell|ghostty|apps|palette|readme|all]
 
 contrast : WCAG ratios from palette.toml (fg on window and view, dim text, text on each accent (the six terminal colours, plus orange), warning text)
 gtk3/gtk4/shell (each in its own process, the toolkits cannot share one):
@@ -25,7 +25,7 @@ def cr(a, b):
 scheme = sys.argv[1].rstrip('/') if len(sys.argv) > 1 else sys.exit(__doc__)
 mode = sys.argv[2] if len(sys.argv) > 2 else 'all'
 ROOT = os.path.dirname(HERE)
-D = os.path.join(ROOT, scheme)
+D = os.path.join(ROOT, 'themes', scheme)
 with open(D + '/palette.toml', 'rb') as f: M = tomllib.load(f)
 FAIL = []
 def ok(cond, msg):
@@ -81,7 +81,7 @@ def toolkit(kind):
         gi.require_version('Gtk', '4.0'); from gi.repository import Gtk
         R = '/org/gtk/libgtk/theme/Default/'; sub = 'gtk-4.0'; src = {'gtk.css': 'Default-light.css', 'gtk-dark.css': 'Default-dark.css'}
     if kind in ('gtk3', 'gtk4'):
-        base = '%s/themes/%s/%s' % (D, M['gtk_name'], sub)
+        base = '%s/gtk/%s/%s' % (D, M['gtk_name'], sub)
         for dst, s in src.items():
             if M.get('light_only') and dst == 'gtk-dark.css': continue
             if M['dark_only'] and dst == 'gtk.css': s = src['gtk-dark.css']
@@ -89,7 +89,7 @@ def toolkit(kind):
     else:
         res = Gio.Resource.load('/usr/share/gnome-shell/gnome-shell-theme.gresource')
         for v in (['light'] if M.get('light_only') else ['dark'] if M['dark_only'] else ['dark', 'light']):
-            p = '%s/themes/%s-%s/gnome-shell/gnome-shell.css' % (D, M['shell_name'], v.capitalize())
+            p = '%s/gtk/%s-%s/gnome-shell/gnome-shell.css' % (D, M['shell_name'], v.capitalize())
             files[p] = (bytes(res.lookup_data('/org/gnome/shell/theme/gnome-shell-%s.css' % v, 0).get_data()).decode(), v)
     tmp = tempfile.mkdtemp()
     def load(path):
@@ -108,7 +108,7 @@ def toolkit(kind):
         gi.require_version('St', '51'); gi.require_version('Clutter', '51'); from gi.repository import St
     TILERE = re.compile(r'/\* candy-for-gnome override: calendar tiles \(begin\) \*/.*?/\* candy-for-gnome override: calendar tiles \(end\) \*/', re.S)
     TILEA = tomllib.load(open(os.path.join(HERE, 'shell-tile-alphas.toml'), 'rb'))
-    if kind == 'shell': ok(all(os.path.isfile(os.path.join(ROOT, k, 'scheme.toml')) for k in TILEA), 'shell-tile-alphas.toml names only existing schemes')
+    if kind == 'shell': ok(all(os.path.isfile(os.path.join(ROOT, 'themes', k, 'scheme.toml')) for k in TILEA), 'shell-tile-alphas.toml names only existing schemes')
     for path, (stock, v) in files.items():
         rel = os.path.relpath(path, D); new = open(path).read()
         body = new[new.index('*/') + 2:] if kind == 'shell' else new[new.index('*/') + 2:]
@@ -230,6 +230,17 @@ def palette_svg():
         ok(worst >= 4.5, 'palette svg: %s text is at least 4.5:1 on every square (worst %.2f)' % (n, worst))
         ok(root.find(ns + 'title') is not None and 'http' not in t.replace('http://www.w3.org/2000/svg', ''), 'palette svg: %s has a title and no external reference' % n)
 
+# ---- the scheme's README.md: the committed page equals the generator's output, names both commands and links the committed palette pictures -----------
+def theme_readme():
+    import importlib.util
+    sp = importlib.util.spec_from_file_location('theme_readme_gen', os.path.join(HERE, 'theme-readme-gen.py')); tg = importlib.util.module_from_spec(sp); sp.loader.exec_module(tg)
+    _, files = tg.build(D)
+    p = D + '/README.md'; t = files['README.md']
+    ok(os.path.exists(p) and open(p).read() == t, 'readme: README.md is current (run `just generate %s` when stale)' % scheme)
+    ok('install-theme %s' % scheme in t and 'switch-theme %s' % scheme in t, 'readme: README.md names the install and switch commands')
+    imgs = re.findall(r'\]\((palette-(?:dark|light)\.svg)\)', t)
+    ok(bool(imgs) and all(os.path.exists(os.path.join(D, i)) for i in imgs), 'readme: every palette picture it links exists')
+
 # ---- per-application themes (Alacritty, Helix, Yazi, kitty, bat, eza, zellij, Claude Code): committed files equal the generators' output ----------
 APPS = ('alacritty', 'helix', 'yazi', 'kitty', 'bat', 'eza', 'zellij', 'claude')
 def apps():
@@ -271,13 +282,14 @@ if mode == 'contrast': contrast()
 elif mode == 'ghostty': ghostty(); sys.exit(1 if FAIL else 0)
 elif mode == 'apps': apps(); sys.exit(1 if FAIL else 0)
 elif mode == 'palette': palette_svg(); sys.exit(1 if FAIL else 0)
+elif mode == 'readme': theme_readme(); sys.exit(1 if FAIL else 0)
 elif mode in ('gtk3', 'gtk4', 'shell'):
     if mode == 'shell':
         import glob as g
         mut = g.glob('/usr/lib64/mutter-*')[0]; os.environ['GI_TYPELIB_PATH'] = '/usr/lib64/gnome-shell:' + mut
     toolkit(mode); sys.exit(1 if FAIL else 0)
 else:
-    contrast(); ghostty(); palette_svg(); apps(); rc = 0
+    contrast(); ghostty(); palette_svg(); theme_readme(); apps(); rc = 0
     for k in ('gtk3', 'gtk4', 'shell'):
         env = dict(os.environ)
         if k == 'shell':

@@ -3,7 +3,7 @@
 # Install, list, update, remove and switch themes (this repo) and icon sets (several icon repos, see
 # tools/icon-sources.conf) in the user's home. Needs only bash and git. Checklists are a built-in terminal UI (SPACE toggles).
 #   themectl.sh <themes|icons> <install|list|update|remove|switch> [name] [accent]
-# A theme is a top-level directory of this repo (a scheme, e.g. gruvbox-material); an icon set belongs to a source of
+# A theme is a directory under themes/ of this repo (a scheme, e.g. gruvbox-material); an icon set belongs to a source of
 # tools/icon-sources.conf (e.g. Papirus-Dark from papirus, Tela-nord from tela). Without a name, install/remove/switch ask.
 # Workflow: install-theme copies from this checkout; update-theme does git fetch + pull --ff-only first. Icons: clone the
 # source into the cache when missing, else bring it to the latest upstream (install and update both), then replace each
@@ -92,6 +92,8 @@ chooses. Other environment variables: see the header of tools/themectl.sh. FORCE
 HELP
 exit 0 ;; esac
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+troot="$root/themes"   # the schemes: $troot/<scheme>/ (scheme.toml, generated files, gtk/<Name>/ = the folders the installer copies)
+sdir() { if [ "$1" = adwaita ]; then echo "$root/adwaita"; else echo "$troot/$1"; fi; }   # adwaita/ is the pseudo scheme of neutral files, kept at the repo root
 cache="${CANDY_FOR_GNOME_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/candy-for-gnome}"
 cfg="${XDG_CONFIG_HOME:-$HOME/.config}"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/candy-for-gnome"
@@ -104,20 +106,11 @@ case "$kind" in
     *) echo "usage: themectl.sh <themes|icons> <install|list|update|remove|switch> [name] [accent]   (themectl.sh help for details)"; exit 2 ;;
 esac
 
-# ---- leftovers of the old project name ---------------------------------------------------------------------
-# This project was called gnome-themes; its folders carry the marker file .gnome-themes. They are not ours any more (never replaced,
-# removed or adopted by this script): print one message and let the user remove them. Nothing is deleted here.
+# ---- folders of the old project name ------------------------------------------------------------------------
+# This project was called gnome-themes; its folders carry the marker file .gnome-themes. They are not listed or touched by
+# this script silently unless a set or scheme of the same name is being installed, updated or removed: then it is treated like our own (install and update give it the new marker)
+# (see is_ours); remove-theme and remove-icon take them too. No message is printed about them.
 old_marker=.gnome-themes
-old_leftovers() {
-    local m d list=() quoted=()
-    [ -d "$dest" ] || return 0
-    for m in "$dest"/*/"$old_marker"; do [ -f "$m" ] && list+=("$(basename "$(dirname "$m")")"); done
-    [ ${#list[@]} -gt 0 ] || return 0
-    for d in "${list[@]}"; do quoted+=("$(printf '%q' "$dest/$d")"); done
-    echo "Found ${#list[@]} folder(s) in $dest installed under the old project name (gnome-themes): ${list[*]}."
-    echo "They are leftovers: candy-for-gnome does not manage them. To remove them: rm -rf ${quoted[*]}"
-}
-old_leftovers
 
 # ---- accents (themes only) -----------------------------------------------------------------------------------
 # state file lines: key=value
@@ -128,15 +121,15 @@ acc_names=(); acc_dark=(); acc_light=(); acc_default=""
 load_accents() {   # accents of scheme $1 from <scheme>/accents/list (name dark light|- [default])
     acc_names=(); acc_dark=(); acc_light=(); acc_default=""
     local n d l f
-    [ -f "$root/$1/accents/list" ] || return 0
+    [ -f "$troot/$1/accents/list" ] || return 0
     while read -r n d l f; do
         case "$n" in ""|"#"*) continue ;; esac
         acc_names+=("$n"); acc_dark+=("$d"); acc_light+=("$l"); if [ "$f" = default ]; then acc_default="$n"; fi
-    done < "$root/$1/accents/list"
+    done < "$troot/$1/accents/list"
 }
 current_accent() { local a; a=$(state_get "$state/accents" "$1"); load_accents "$1"; [ -n "$a" ] && printf '%s\n' "${acc_names[@]}" | grep -qx "$a" && echo "$a" || echo "$acc_default"; }
 accent_maps() {    # sets map_dark, map_light for scheme $1 accent $2 (light falls back to dark for dark-only schemes)
-    map_dark="$root/$1/accents/$2.dark.sed"; map_light="$root/$1/accents/$2.light.sed"
+    map_dark="$troot/$1/accents/$2.dark.sed"; map_light="$troot/$1/accents/$2.light.sed"
     [ -f "$map_light" ] || map_light="$map_dark"
     [ -f "$map_dark" ] || map_dark="$map_light"     # light-only scheme: the one map serves both
 }
@@ -272,8 +265,8 @@ load_items() {
     items=(); labels=(); i_src=(); i_dir=(); i_var=()
     if [ "$kind" = themes ]; then
         local all=() ordered=() f d dd star; local -A isfeat=()   # pure bash: this runs on every invocation, and there are hundreds of schemes
-        for p in "$root"/*/palette.toml; do
-            d="${p%/palette.toml}"; sc="${d##*/}"; [ -d "$d/themes" ] && all+=("$sc")
+        for p in "$troot"/*/palette.toml; do
+            d="${p%/palette.toml}"; sc="${d##*/}"; [ -d "$d/gtk" ] && all+=("$sc")
         done
         mapfile -t all < <(printf '%s\n' "${all[@]}" | LC_ALL=C sort)
         for f in $FEATURED_THEMES; do isfeat[$f]=1; done
@@ -281,7 +274,7 @@ load_items() {
         for sc in "${all[@]}"; do [ -n "${isfeat[$sc]:-}" ] || ordered+=("$sc"); done
         for sc in "${ordered[@]}"; do
             gtk=""; shell=""
-            for d in "$root/$sc"/themes/*/; do
+            for d in "$troot/$sc"/gtk/*/; do
                 dd="${d%/}"; n="${dd##*/}"
                 case "$n" in
                     *-Shell-*) v="${n##*-Shell-}"; shell="${shell:+$shell/}${v,,}" ;;
@@ -309,7 +302,7 @@ load_items() {
 }
 is_script() { case "${src_layout[${i_src[$1]}]}" in script|script-t) return 0 ;; *) return 1 ;; esac; }   # sets built by the upstream install.sh
 folders_of() {   # installable folder names of item $1 (exactly these: never a glob, so removing Tela keeps Tela-blue)
-    if [ "$kind" = themes ]; then for d in "$root/$1"/themes/*/; do d="${d%/}"; echo "${d##*/}"; done
+    if [ "$kind" = themes ]; then for d in "$troot/$1"/gtk/*/; do d="${d%/}"; echo "${d##*/}"; done
     elif is_script "$1"; then echo "$1"; echo "$1-dark"; echo "$1-light"
     else echo "$1"; fi
 }
@@ -338,7 +331,7 @@ finish_item() { if [ -n "$build_dir" ]; then rm -rf "${build_dir:?}"; build_dir=
 # cloned or freshly built one; script-built sets have no source copy outside install, so they are adopted on install only).
 marker=.candy-for-gnome
 src_index() {    # src_index ITEM FOLDER: our source's index.theme for that folder (may not exist)
-    if [ "$kind" = themes ]; then echo "$root/$1/themes/$2/index.theme"; return; fi
+    if [ "$kind" = themes ]; then echo "$troot/$1/gtk/$2/index.theme"; return; fi
     case "${src_layout[${i_src[$1]}]}" in
         top)    echo "$(clone_of "${i_src[$1]}")/${i_dir[$1]}/index.theme" ;;
         root)   echo "$(clone_of "${i_src[$1]}")/index.theme" ;;
@@ -348,14 +341,14 @@ src_index() {    # src_index ITEM FOLDER: our source's index.theme for that fold
 is_ours() {      # is_ours DIR SRC_INDEX
     [ -d "$1" ] || return 1
     marker_present "$1" && return 0
-    [ -f "$1/$old_marker" ] && return 1     # installed under the old name: never ours, not even by index.theme
+    [ -f "$1/$old_marker" ] && return 0     # carries the old gnome-themes marker: ours for every verb (install and update adopt it with the new marker, remove removes it)
     [ -n "${2:-}" ] && [ -f "$2" ] && [ -f "$1/index.theme" ] && cmp -s "$2" "$1/index.theme"
 }
 # may_touch DIR SRC_INDEX VERB: 0 when DIR is absent, ours, FORCE=1 or the user says yes in a terminal; else 1 (with a message)
 may_touch() {
     local d="$1" a
     [ -e "$d" ] || [ -L "$d" ] || return 0
-    is_ours "$d" "${2:-}" && return 0
+    is_ours "$d" "${2:-}" && return 0   # old-marker folders count as ours for every verb, removal included
     [ "${FORCE:-}" = 1 ] && return 0
     if [ "$tty_in" = 1 ]; then
         read -r -u 3 -p "$d exists and was not installed by candy-for-gnome. ${3:-Replace} it? [y/N] " a || a=n
@@ -429,9 +422,9 @@ theme_swatches() {   # themes: the terminal background and the default accent of
     local i sc f l bg acc n d lt fl
     for i in "${!items[@]}"; do
         sc="${items[i]}"; bg=""; acc=""
-        if [ -f "$root/$sc/accents/list" ]; then
-            while read -r n d lt fl; do case "$n" in ""|"#"*) continue ;; esac; [ -n "$acc" ] || acc="$d"; [ "$fl" = default ] && { acc="$d"; break; }; done < "$root/$sc/accents/list"
-            f="$root/$sc/ghostty/candy-for-gnome-$sc-dark"; [ -f "$f" ] || f="$root/$sc/ghostty/candy-for-gnome-$sc-light"
+        if [ -f "$troot/$sc/accents/list" ]; then
+            while read -r n d lt fl; do case "$n" in ""|"#"*) continue ;; esac; [ -n "$acc" ] || acc="$d"; [ "$fl" = default ] && { acc="$d"; break; }; done < "$troot/$sc/accents/list"
+            f="$troot/$sc/ghostty/candy-for-gnome-$sc-dark"; [ -f "$f" ] || f="$troot/$sc/ghostty/candy-for-gnome-$sc-light"
             if [ -f "$f" ]; then while read -r l; do case "$l" in "background = "*) bg="${l#background = }"; break ;; esac; done < "$f"; fi
         fi
         sw_set "$i" "$bg" "$acc"
@@ -706,7 +699,7 @@ pty_cleanup() {  # delete leftover generated palette files of earlier versions: 
 }
 dq() { grep -o "'[^']*'" | tr -d "'"; }   # the quoted strings of a GVariant text value
 pty_toml() {  # pty_toml SCHEME KEY: the top-level string value of KEY in scheme.toml (empty when absent)
-    awk -v k="$2" '/^\[/ { exit } index($0, k " = \"") == 1 { v = substr($0, length(k) + 5); sub(/".*$/, "", v); print v; exit }' "$root/$1/scheme.toml" 2>/dev/null | tr -d '\r'
+    awk -v k="$2" '/^\[/ { exit } index($0, k " = \"") == 1 { v = substr($0, length(k) + 5); sub(/".*$/, "", v); print v; exit }' "$troot/$1/scheme.toml" 2>/dev/null | tr -d '\r'
 }
 pty_mode() {  # dark or light, from the system colour scheme (prefer-dark = dark, prefer-light = light; `default` = dark only when the GTK theme in use is a dark one, else light; no gsettings = dark)
     local cs gt; cs=$(gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null | tr -d "'") || cs=""
@@ -757,13 +750,13 @@ gsv_app_present() { [ -d "$fp_apps/$1" ] || { command -v flatpak >/dev/null 2>&1
 gsv_dirs() {   # the styles directories to fill: the user's own, and the data directory of each installed Flatpak editor
     echo "$gsv_dir"; local a; for a in "${gsv_apps[@]}"; do if gsv_app_present "$a"; then echo "$fp_apps/$a/data/gtksourceview-5/styles"; fi; done
 }
-gsv_files() { local f; for f in "$root/$1"/gtksourceview/*.xml; do [ -f "$f" ] && basename "$f"; done; }   # file names of scheme $1
+gsv_files() { local f; for f in "$troot/$1"/gtksourceview/*.xml; do [ -f "$f" ] && basename "$f"; done; }   # file names of scheme $1
 gsv_install() {  # gsv_install SCHEME: copy the style schemes into every styles directory
     local s="$1" d f n=0
     while read -r d; do
         while read -r f; do
             pty_may_touch "$s" Replace "$d/$f" || continue
-            mkdir -p "$d"; cp "$root/$s/gtksourceview/$f" "$d/$f"; n=$((n+1))
+            mkdir -p "$d"; cp "$troot/$s/gtksourceview/$f" "$d/$f"; n=$((n+1))
         done < <(gsv_files "$s")
     done < <(gsv_dirs)
     if [ "$n" -gt 0 ]; then echo "Installed GtkSource style scheme(s) of $s ($n file(s); editors: $gsv_dir and installed Flatpak editors)."; fi
@@ -772,7 +765,7 @@ gsv_refresh() {  # update: refresh only the files that exist and are ours
     local s="$1" d f
     while read -r d; do
         while read -r f; do
-            [ -f "$d/$f" ] && pty_ours "$s" "$d/$f" && cp "$root/$s/gtksourceview/$f" "$d/$f"
+            [ -f "$d/$f" ] && pty_ours "$s" "$d/$f" && cp "$troot/$s/gtksourceview/$f" "$d/$f"
         done < <(gsv_files "$s")
     done < <(gsv_dirs)
     return 0
@@ -799,11 +792,11 @@ gsv_set_flatpak() {   # gsv_set_flatpak APP SCHEMA KEY ID LABEL: set the key in 
 gsv_switch() {   # point Text Editor (and Builder when present) at the scheme's style scheme for the current light/dark mode
     local s="$1" id="" dark=1 f base
     [ -n "$(gsv_files "$s")" ] || return 0
-    base="dark"; [ -f "$root/$s/gtksourceview/candy-for-gnome-$s-dark.xml" ] || base="light"     # light-only scheme: only the -light id exists
+    base="dark"; [ -f "$troot/$s/gtksourceview/candy-for-gnome-$s-dark.xml" ] || base="light"     # light-only scheme: only the -light id exists
     [ -f "$gsv_dir/candy-for-gnome-$s-$base.xml" ] && pty_ours "$s" "$gsv_dir/candy-for-gnome-$s-$base.xml" || { echo "GtkSource style scheme not applied: the installed copy is missing or not ours."; return 0; }
     gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null | grep -qi dark || dark=0
     id="candy-for-gnome-$s-$base"
-    if [ "$dark" = 0 ] && [ -f "$root/$s/gtksourceview/candy-for-gnome-$s-light.xml" ]; then id="candy-for-gnome-$s-light"; fi
+    if [ "$dark" = 0 ] && [ -f "$troot/$s/gtksourceview/candy-for-gnome-$s-light.xml" ]; then id="candy-for-gnome-$s-light"; fi
     # Flatpak editors keep their OWN settings store (no dconf socket in the sandbox): the key is set and read back inside the sandbox.
     # The host dconf is written for an editor that is not a Flatpak, or when the host also has its schema.
     if gsv_flatpak org.gnome.TextEditor; then gsv_set_flatpak org.gnome.TextEditor org.gnome.TextEditor style-scheme "$id" "Text Editor"; fi
@@ -831,10 +824,10 @@ gsv_switch() {   # point Text Editor (and Builder when present) at the scheme's 
 gh_dir="$cfg/ghostty"; gh_data="${XDG_DATA_HOME:-$HOME/.local/share}/candy-for-gnome/ghostty"
 gh_link="$gh_dir/candy-for-gnome.conf"; gh_line='config-file = ?candy-for-gnome.conf'
 gh_present() { [ -d "$gh_dir" ]; }
-gh_themes() { local f; for f in "$root/$1"/ghostty/*; do [ -f "$f" ] && case "$f" in *.conf) ;; *) basename "$f" ;; esac; done; return 0; }   # theme file names of scheme $1
+gh_themes() { local f; for f in "$(sdir "$1")"/ghostty/*; do [ -f "$f" ] && case "$f" in *.conf) ;; *) basename "$f" ;; esac; done; return 0; }   # theme file names of scheme $1
 gh_targets() {   # gh_targets SCHEME: "<source file>|<destination>" for every file to install (theme files, then the pair file)
-    local f; for f in $(gh_themes "$1"); do echo "$root/$1/ghostty/$f|$gh_dir/themes/$f"; done
-    [ -f "$root/$1/ghostty/$1.conf" ] && echo "$root/$1/ghostty/$1.conf|$gh_data/$1.conf"; return 0
+    local f; for f in $(gh_themes "$1"); do echo "$(sdir "$1")/ghostty/$f|$gh_dir/themes/$f"; done
+    [ -f "$(sdir "$1")/ghostty/$1.conf" ] && echo "$(sdir "$1")/ghostty/$1.conf|$gh_data/$1.conf"; return 0
 }
 gh_install() {   # gh_install SCHEME: copy the theme files and the pair file (same collision guard as the other files)
     local s="$1" src dst n=0
@@ -982,7 +975,7 @@ copy_folder() {  # replace folder $1 of item $2 in dest: remove the set's folder
     mark_old=$(marker_read "$dest/$f" installed_at)
     rm -rf "${dest:?}/$f"
     if [ "$kind" = themes ]; then
-        cp -a "$root/$it/themes/$f" "$dest/$f"
+        cp -a "$troot/$it/gtk/$f" "$dest/$f"
         # the stock assets are stored once in the repo (assets/gtk-3.0, assets/gtk-4.0): installed themes get real copies
         for v in gtk-3.0 gtk-4.0; do
             if [ -d "$dest/$f/$v" ] && [ -d "$root/assets/$v" ]; then mkdir -p "$dest/$f/$v/assets"; cp -a "$root/assets/$v/." "$dest/$f/$v/assets/"; fi
@@ -1123,7 +1116,7 @@ icon_folder_item() {   # icon_folder_item NAME: "<item index>|<folder>" when NAM
     return 1
 }
 icons_pick_many() {   # icons_pick_many install|remove: families first, then the colours or sets of each ticked family; sets chosen (item indexes)
-    local mode="$1" n lab ni fkeys=() j k m fam_ticked=() c
+    local mode="$1" n lab ni fkeys=() j k fam_ticked=() c
     pm_labels=(); pm_on=()
     for n in "${src_names[@]}"; do
         fam_members "$n"; [ "${#fam_idx[@]}" -gt 0 ] || continue
@@ -1368,7 +1361,7 @@ case "$action" in
                 fi
             fi
             # libadwaita apps ignore the GTK theme and read only the user stylesheet
-            la="$root/$sc/libadwaita/gtk.css"; target="$cfg/gtk-4.0/gtk.css"
+            la="$troot/$sc/libadwaita/gtk.css"; target="$cfg/gtk-4.0/gtk.css"
             if [ -f "$la" ]; then
                 ac=$(current_accent "$sc")
                 if [ -n "$ac" ] && [ "$ac" != "$acc_default" ]; then

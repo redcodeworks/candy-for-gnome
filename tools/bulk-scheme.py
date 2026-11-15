@@ -107,7 +107,7 @@ def run(cmd, **kw): return subprocess.run(cmd, cwd=ROOT, capture_output=True, te
 
 def build_one(r):
     name, did, lid = r[0], r[1], (r[2] if r[2] != '-' else None)
-    d = os.path.join(ROOT, name)
+    d = os.path.join(ROOT, 'themes', name)
     if os.path.exists(d): return False, 'directory exists'
     text, todo = sfp.build(d, did, lid)
     os.makedirs(d); open(os.path.join(d, 'scheme.toml'), 'w', encoding='utf-8').write(text)
@@ -136,7 +136,7 @@ def build(args):
         ok, why = build_one(r)
         if ok: r[3], r[4] = 'built', ''
         else:
-            if why != 'directory exists': shutil.rmtree(os.path.join(ROOT, r[0]), ignore_errors=True)   # never delete a folder this run did not create
+            if why != 'directory exists': shutil.rmtree(os.path.join(ROOT, 'themes', r[0]), ignore_errors=True)   # never delete a folder this run did not create
             r[3], r[4] = 'excluded', why
         print('%-32s %s %s' % (r[0], r[3], r[4])); write(rows)
     status()

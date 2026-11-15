@@ -4,7 +4,7 @@
 
   python3 -I tools/palette-svg-gen.py <scheme-dir> [--check]     # --check: print the files' names and sizes, write nothing
 
-Repository documentation only (the README gallery and the scheme folders): the installer never copies them, it copies only <scheme>/themes/<Name>/
+Repository documentation only (the README gallery and the scheme folders): the installer never copies them, it copies only themes/<scheme>/gtk/<Name>/
 and the per-tool files. A dark-only scheme has only palette-dark.svg, a light-only one only palette-light.svg (the same rule as the Ghostty files).
 
 COLOURS: the single source of truth is `colors()` of tools/ghostty-gen.py, the function that builds the Ghostty theme (the data of the Ptyxis
