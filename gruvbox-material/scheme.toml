@@ -13,6 +13,7 @@ shell_name = "Gruvbox-Material-Shell"
 credit = "sainnhe/gruvbox-material (MIT)"
 ptyxis = "Gruvbox Material"
 ptyxis_reason = "there is no light Gruvbox Material built-in, so the dark built-in is used in both modes."
+ptyxis_brights_differ = "Kevin, 2026-11-15: the other terminals use lightened brights (Dracula-derived rule); Ptyxis stays on its built-in palette"
 default_accent = "blue"
 
 [dark]
@@ -74,8 +75,18 @@ secondary_sidebar = "#f3eac7"   # hand-picked in the old libadwaita file; the ru
 source = "Gruvbox Material"   # Ptyxis built-in id
 black = "#3c3836"   # Color0
 white = "#d4be98"   # Color7
-bright_black = "#3c3836"   # Color8
-bright_white = "#d4be98"   # Color15
+# Brights 8-15: Kevin's decision, 2026-11-15 (this scheme's DARK variant only). The Ptyxis built-in has every bright equal to its standard colour; the other
+# terminals (Ghostty, Alacritty, kitty, Helix, Yazi, bat, eza, zellij, Claude Code) get these lightened brights (Dracula's rule: colours 1-6 lightness +0.10
+# and saturation +0.05 in HLS, hue unchanged; bright black lifted to a mid grey; bright white a little lighter and less tinted). Ptyxis stays on its built-in
+# palette: `ptyxis_brights_differ` at the top accepts exactly this difference (Color8-15 of the dark variant) for tools/ptyxis-compare.py.
+bright_black = "#928179"   # Color8  (built-in #3c3836)
+bright_red = "#f3918c"     # Color9  (built-in #ea6962)
+bright_green = "#bfcb83"   # Color10 (built-in #a9b665)
+bright_yellow = "#e6bd7c"  # Color11 (built-in #d8a657)
+bright_blue = "#98c6bb"    # Color12 (built-in #7daea3)
+bright_magenta = "#e3a9b9" # Color13 (built-in #d3869b)
+bright_cyan = "#a4cb9e"    # Color14 (built-in #89b482)
+bright_white = "#d5c8b0"   # Color15 (built-in #d4be98)
 
 [light.terminal]
 no_builtin = "no Ptyxis built-in has a light Gruvbox Material (the built-in of that name is dark only); the values stay as before"

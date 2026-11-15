@@ -136,14 +136,14 @@ themes {
             magenta 211 134 155
             cyan 137 180 130
             white 212 190 152
-            bright_black 60 56 54
-            bright_red 234 105 98
-            bright_green 169 182 101
-            bright_yellow 216 166 87
-            bright_blue 125 174 163
-            bright_magenta 211 134 155
-            bright_cyan 137 180 130
-            bright_white 212 190 152
+            bright_black 146 129 121
+            bright_red 243 145 140
+            bright_green 191 203 131
+            bright_yellow 230 189 124
+            bright_blue 152 198 187
+            bright_magenta 227 169 185
+            bright_cyan 164 203 158
+            bright_white 213 200 176
         }
     }
     candy-for-gnome-light {

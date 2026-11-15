@@ -32,6 +32,9 @@ Distance per colour = CIE76 delta E in CIELAB (D65); a variant's distance is the
   all18   all 18 colours (Background, Foreground, Color0..15), shown for information.
 Cursor and titlebar are never compared. THRESHOLD marks a "close match" in the table (roles max delta E <= THRESHOLD; about 2.3 is a just
 noticeable difference).
+A scheme may accept a decided difference of the dark variant's brights (Color8..15) with `ptyxis_brights_differ = "<reason>"` (Gruvbox Material, Kevin
+2026-11-15: the other terminals show lightened brights while Ptyxis stays on its built-in palette); only those eight colours are exempt, any other difference
+is still reported, the key must carry a real reason and is stale when no bright differs.
 A dark-only scheme that declares a sectioned built-in shows that built-in's [Light] section under a light system colour scheme; scheme.toml must
 say `ptyxis_light_section_accepted = true` (Nordic with Nord: a deliberate decision).
 """
@@ -91,10 +94,17 @@ def candidates(scheme, title):
     stems = [norm(title)] + [norm(h) for h in HINTS.get(scheme, [])]
     return [(i, n, sec) for i, (n, sec, _) in sorted(builtins().items(), key=lambda kv: kv[1][0]) if any(norm(x).startswith(st) for st in stems for x in (i, n))]
 
+BRIGHTS = ['Color%d' % i for i in range(8, 16)]
+def accepted_brights(S, variant):
+    """Color8..15 of the DARK variant that differ from the built-in by decision (`ptyxis_brights_differ = "<reason>"` at the top of scheme.toml): Ptyxis stays on
+    its built-in palette while the other terminals show the lightened brights. Nothing else is exempt."""
+    return BRIGHTS if variant == 'dark' and str(S.get('ptyxis_brights_differ', '')).strip() else []
+
 def role_keys(S, variant):
     """The colours scheme.toml defines for the variant (see the header)."""
     T = S[variant].get('terminal', {})
-    return ['Background', 'Foreground'] + ['Color%d' % i for i in range(1, 7)] + sorted((TERMINAL_KEYS[k] for k in T if k in TERMINAL_KEYS), key=lambda k: int(k[5:]))
+    ex = accepted_brights(S, variant)   # decided differences are not part of the distance to the built-in
+    return [k for k in ['Background', 'Foreground'] + ['Color%d' % i for i in range(1, 7)] + sorted((TERMINAL_KEYS[k] for k in T if k in TERMINAL_KEYS), key=lambda k: int(k[5:])) if k not in ex]
 
 def distance(S, roles, variant, pid):
     """(roles max dE, worst role colour, all18 max dE) of the scheme's `variant` against built-in `pid`, or None when it has no palette for it."""
@@ -162,8 +172,15 @@ def terminal_problems(scheme_dir):
         b = builtin_set(src, v)
         if not b: bad.append('%s: source "%s" is not a Ptyxis built-in id with a %s palette' % (who, src, v)); continue
         mine = sr.slot_colors(S, roles, v)
+        acc = accepted_brights(S, v)
+        if v == 'dark' and 'ptyxis_brights_differ' in S:
+            if len(str(S['ptyxis_brights_differ']).strip()) < 10: bad.append('%s: ptyxis_brights_differ needs a real reason' % who)
+            if not any(de(mine[k], b[k]) > 0.001 for k in acc if k in b): bad.append('%s: ptyxis_brights_differ is set but no bright differs from the built-in (stale)' % who)
+        for k in acc:
+            if k in N: bad.append('%s: %s is accepted through ptyxis_brights_differ and must not also carry a nudge' % (who, k))
         for k in KEYS:
             if k not in b or k not in mine: continue
+            if k in acc: continue   # the one accepted difference (Color8-15 of the dark variant); every other colour is still compared
             d = de(mine[k], b[k]); n = N.get(k)
             if d > 0.001:
                 if not n: bad.append('%s: %s %s differs from %s %s (dE %.2f) and is not listed in [%s.nudge]' % (who, k, mine[k], src, b[k], d, v)); continue
