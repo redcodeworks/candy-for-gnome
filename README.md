@@ -26,6 +26,8 @@ just switch-icon Papirus-Dark
 Themes go to `~/.themes`, icons to `~/.local/share/icons`, as real copies. Checklists use `gum` when it is installed, otherwise a built-in picker: SPACE ticks,
 `/` filters, ENTER confirms, q cancels.
 
+`just switch-theme Adwaita` (the first entry of the list) goes back to the default GNOME look: Adwaita GTK and Shell theme, the stock terminal palette and editor style, and your terminal and command-line tools show their own defaults again. Your own config files are never edited; `just switch-theme <scheme>` brings the theme back. `just switch-icon Adwaita` does the same for icons.
+
 On a terminal, key messages start with an emoji (✅ installed, 🎨 applied, 🔄 updated, 🧹 removed, ❗ something for you to do, 🟡 warning, ❌ error). Set `CANDY_PLAIN=1` or `NO_EMOJI=1` to switch them off; piped or captured output never has them.
 
 | Themes | Icons | |

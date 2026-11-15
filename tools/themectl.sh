@@ -82,6 +82,8 @@ candy-for-gnome: themes and icon sets (just <recipe>; behind the image: ujust gn
   remove-theme [name]            remove an installed theme (checklist without a name); folders candy-for-gnome did not install are not touched
   switch-theme [name] [accent]   make a theme the GTK, Shell and libadwaita theme and select the matching Ptyxis palette, Text Editor
                                  style, (when ~/.config/ghostty exists) the Ghostty theme and the themes of installed Alacritty, Helix, Yazi, kitty, bat, eza, zellij and Claude Code (tools/apps.sh); the accent is one of the theme's own colors (asked when omitted)
+                                 `switch-theme Adwaita` (first entry of the list) hands everything back to the GNOME and tool defaults and is undone by
+                                 switching to a scheme again; `switch-icon Adwaita` sets the GNOME default icon theme
   install-icon [name]            install an icon set from its source repo (cloned into ~/.cache/candy-for-gnome) into ~/.local/share/icons
   update-icon, remove-icon [name], switch-icon [name]   as for themes
 
@@ -361,7 +363,12 @@ may_touch() {
     return 1
 }
 mark_dir() { printf '%s\n' "$2" > "$1/$marker"; }
-is_installed() { local f; while read -r f; do [ -e "$dest/$f" ] && is_ours "$dest/$f" "$(src_index "$1" "$f")" && return 0; done < <(folders_of "$1"); return 1; }
+adw_label="Adwaita (GNOME default)"; items_adw=0
+add_adwaita() {   # switch and list only: the GNOME default as the first entry (nothing is installed or removed for it; it is the system's own)
+    items=(Adwaita "${items[@]}"); labels=("$adw_label" "${labels[@]}"); items_adw=1
+}
+is_adwaita() { [ "${items_adw:-0}" = 1 ] && [ "$1" = Adwaita ]; }
+is_installed() { is_adwaita "$1" && return 0; local f; while read -r f; do [ -e "$dest/$f" ] && is_ours "$dest/$f" "$(src_index "$1" "$f")" && return 0; done < <(folders_of "$1"); return 1; }
 index_of() { local i; for i in "${!items[@]}"; do [ "${items[i]}" = "$1" ] && { echo "$i"; return 0; }; done; return 1; }
 
 # ---- prompts -------------------------------------------------------------------------------------
@@ -525,8 +532,9 @@ gum_run() {
     # featured entries (starred) first, then the rest; NO heading or divider rows: gum cannot make a row unselectable, and every row must be a real choice
     if [ "${pick_keep_order:-0}" = 1 ]; then for i in "${cand[@]}"; do items+=("${labels[i]}"); done   # the caller ordered the list (just-installed first)
     else
+        for i in "${cand[@]}"; do [ "${items_adw:-}" = 1 ] && [ "${labels[i]}" = "$adw_label" ] && items+=("${labels[i]}"); done   # the Adwaita entry stays first
         for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] && items+=("${labels[i]}"); done
-        for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] || items+=("${labels[i]}"); done
+        for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] || { [ "${items_adw:-}" = 1 ] && [ "${labels[i]}" = "$adw_label" ]; } || items+=("${labels[i]}"); done
     fi
     for i in "${cand[@]}"; do idx_of[${labels[i]}]=$i; [ "$mode" = many ] && [ "${on[i]:-0}" -eq 1 ] && sel+="${sel:+,}${labels[i]}"; done
     sz=$(stty size </dev/tty 2>/dev/null) && rows=${sz% *}
@@ -822,6 +830,14 @@ gh_switch() {    # point Ghostty at the scheme: link the pair file, ask once abo
     fi
     echo "Ghostty has no auto-reload: press ctrl+shift+, (reload_config) in open Ghostty windows."
 }
+gh_adwaita() {   # switch-theme Adwaita: retarget the managed include link to the neutral pair file (the user's config is never touched, nothing is created when there is no managed link)
+    gh_present && gh_link_ours || return 0
+    local src dst
+    while IFS='|' read -r src dst; do pty_may_touch adwaita Replace "$dst" || return 0; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; done < <(gh_targets adwaita)
+    ln -sfn "$gh_data/adwaita.conf" "$gh_link"
+    echo "Ghostty is now neutral (its include link points at an empty config, so Ghostty uses its own theme; $gh_link)."
+    echo "Ghostty has no auto-reload: press ctrl+shift+, (reload_config) in open Ghostty windows."
+}
 gh_status() {    # a line for list-themes, only when the Ghostty config directory exists
     gh_present || return 0
     local t="none" conf; gh_link_ours && t=$(basename "$(readlink "$gh_link")" .conf); conf=$(gh_conf_file)
@@ -940,12 +956,80 @@ current_value() {  # the value the desktop currently uses (theme or icon set)
 # resolve $want to an index, or explain
 resolve() { index_of "$want" || { echo "'$want' is not a $noun here. Available: ${items[*]}" >&2; exit 1; }; }
 
+set_ini() {  # set_ini KEY VALUE: rewrite the key in the GTK settings.ini files that already have it
+    local f; for f in "$cfg/gtk-3.0/settings.ini" "$cfg/gtk-4.0/settings.ini"; do
+        if [ -f "$f" ] && grep -q "^$1=" "$f"; then sed -i "s|^$1=.*|$1=$2|" "$f"; fi
+    done
+}
+
+# ---- Adwaita (GNOME default): `switch-theme Adwaita` hands the look back to GNOME and the tools ---------------------------------------------
+# No file of a user is ever edited or deleted. GNOME keys are reset or set to the stock value; every MANAGED link (made by this installer) is
+# retargeted to a neutral file shipped in adwaita/ (installed like a scheme's files, marker `candy-for-gnome: adwaita`), exactly the way a switch
+# between schemes retargets it, so the user's config keeps pointing at the same link and `switch-theme <scheme>` points it back. Links that do
+# not exist are not created, and nothing is asked.
+adw_reset_dconf() {  # adw_reset_dconf KEY: reset a key through gsettings-independent dconf (the key paths of Ptyxis, Text Editor, Builder, User Themes)
+    command -v dconf >/dev/null 2>&1 && dconf reset "$1" 2>/dev/null
+}
+adw_shell() {
+    local done_=0
+    if gsettings list-schemas 2>/dev/null | grep -qx org.gnome.shell.extensions.user-theme; then gsettings reset org.gnome.shell.extensions.user-theme name && done_=1
+    elif adw_reset_dconf /org/gnome/shell/extensions/user-theme/name; then done_=1; fi
+    if [ "$done_" = 1 ]; then echo "Shell theme is now the GNOME default (the User Themes key was reset; reload it by logging out and in, or toggling the User Themes extension)."
+    else echo "Could not reset the Shell theme: neither gsettings nor dconf could write the User Themes key."; fi
+}
+adw_libadwaita() {   # remove the libadwaita file only when candy-for-gnome generated it; a backup of the user's own file (.bak) is put back, never lost
+    local t="$cfg/gtk-4.0/gtk.css"
+    [ -e "$t" ] || return 0
+    if ! grep -q "libadwaita-gen.py" "$t" 2>/dev/null; then echo "$t is not generated by candy-for-gnome; left alone."; return 0; fi
+    if [ -e "$t.bak" ]; then cp -L "$t.bak" "$t"; echo "Updated $t (your own file from $t.bak is back; the backup stays)."
+    else rm -f "$t"; echo "Removed $t (the libadwaita file candy-for-gnome had generated)."; fi
+}
+adw_ptyxis() {   # reset the palette key on the same profiles switch-theme sets (the default one and those with a key): the key's own default is Ptyxis's stock palette
+    local uuids def u sel=() n=0
+    command -v dconf >/dev/null 2>&1 || { echo "Ptyxis palette not changed: dconf not found."; return 0; }
+    uuids=$(dconf read /org/gnome/Ptyxis/profile-uuids 2>/dev/null | dq || true)
+    def=$(dconf read /org/gnome/Ptyxis/default-profile-uuid 2>/dev/null | dq | head -n1 || true)
+    [ -n "$def" ] || def=$(printf '%s\n' "$uuids" | head -n1)
+    [ -n "$def" ] || { echo "Ptyxis palette not changed: no Ptyxis profile found."; return 0; }
+    sel=("$def")
+    for u in $uuids; do [ "$u" = "$def" ] && continue; [ -n "$(dconf read "/org/gnome/Ptyxis/Profiles/$u/palette" 2>/dev/null || true)" ] && sel+=("$u"); done
+    for u in "${sel[@]}"; do dconf reset "/org/gnome/Ptyxis/Profiles/$u/palette" && n=$((n+1)); done
+    echo "Ptyxis palette is now the Ptyxis default (the palette key was reset on $n profile(s); candy-for-gnome does not record the previous one)."
+}
+adw_gsv_flatpak() {  # adw_gsv_flatpak APP SCHEMA KEY LABEL: reset the key in the app's own sandbox store and report what it reads back
+    local app="$1" schema="$2" key="$3" label="$4" got
+    flatpak run --command=gsettings "$app" reset "$schema" "$key" </dev/null >/dev/null 2>&1 || true
+    got=$(flatpak run --command=gsettings "$app" get "$schema" "$key" </dev/null 2>/dev/null | tr -d "'") || got=""
+    echo "$label (Flatpak) style scheme is now the stock default (${got:-unknown})."
+}
+adw_gsv() {   # Text Editor and Builder: reset the style-scheme key (the stock default, not a named scheme); the installed style files stay
+    if gsv_flatpak org.gnome.TextEditor; then adw_gsv_flatpak org.gnome.TextEditor org.gnome.TextEditor style-scheme "Text Editor"; fi
+    if ! gsv_flatpak org.gnome.TextEditor || gsettings list-schemas 2>/dev/null | grep -qx org.gnome.TextEditor; then
+        if adw_reset_dconf /org/gnome/TextEditor/style-scheme; then echo "Text Editor style scheme is now the stock default (the key was reset)."; fi
+    fi
+    if gsv_flatpak org.gnome.Builder; then adw_gsv_flatpak org.gnome.Builder org.gnome.builder.editor style-scheme-name "Builder"; fi
+    if gsettings list-schemas 2>/dev/null | grep -qx org.gnome.builder.editor; then
+        if adw_reset_dconf /org/gnome/builder/editor/style-scheme-name; then echo "Builder style scheme is now the stock default (the key was reset)."; fi
+    fi
+    return 0
+}
+adwaita_theme_switch() {
+    gsettings set org.gnome.desktop.interface gtk-theme Adwaita; set_ini gtk-theme-name Adwaita
+    echo "GTK theme is now Adwaita (the GNOME default; your light/dark preference is unchanged)."
+    adw_shell
+    adw_libadwaita
+    pty_cleanup; adw_ptyxis; adw_gsv
+    gh_adwaita; app_adwaita
+    echo "Restart GTK apps to pick up the new theme."
+}
+
 case "$action" in
     list)
-        load_items
+        load_items; add_adwaita
         for i in "${!items[@]}"; do
-            ac=""; if [ "$kind" = themes ]; then ac="  [accent: $(current_accent "${items[i]}")]"; fi
-            if is_installed "${items[i]}"; then echo "✓ ${labels[i]}$ac"; else echo "  ${labels[i]}"; fi
+            ac=""; if [ "$kind" = themes ] && ! is_adwaita "${items[i]}"; then ac="  [accent: $(current_accent "${items[i]}")]"; fi
+            if is_adwaita "${items[i]}"; then if [ "$(current_value)" = Adwaita ]; then echo "✓ ${labels[i]}"; else echo "  ${labels[i]}"; fi
+            elif is_installed "${items[i]}"; then echo "✓ ${labels[i]}$ac"; else echo "  ${labels[i]}"; fi
         done
         if [ "$kind" = themes ]; then gh_status; apps_status; fi ;;
 
@@ -989,6 +1073,7 @@ case "$action" in
             if [ "$kind" = icons ]; then copy_item "$nm"; n=$((n+1))
             else while read -r f; do if [ -e "$dest/$f" ] && copy_folder "$f" "$nm"; then n=$((n+1)); fi; done < <(folders_of "$nm"); pty_cleanup; gsv_refresh "$nm"; gh_refresh "$nm"; app_refresh "$nm"; fi
         done
+        if [ "$kind" = themes ]; then gh_refresh adwaita; app_refresh adwaita; fi   # the neutral files of switch-theme Adwaita, only where they exist and are ours
         [ "$n" -gt 0 ] || echo "None of the ${noun}s from this source is installed in $dest." ;;
 
     remove)
@@ -1026,7 +1111,8 @@ case "$action" in
         fp_undo ;;
 
     switch)
-        load_items; inst=()
+        load_items; add_adwaita; inst=()
+        case "${want,,}" in adwaita) want=Adwaita ;; esac
         for i in "${!items[@]}"; do if is_installed "${items[i]}"; then inst+=("$i"); fi; done
         [ "${#inst[@]}" -gt 0 ] || { echo "No ${noun}s from this source are installed; install one first."; exit 1; }
         if [ -n "$want" ]; then
@@ -1034,6 +1120,9 @@ case "$action" in
         else
             choose_one "Switch to which $noun?" "${inst[@]}"; i="$pick"
             [ -n "$i" ] || { echo "Cancelled."; exit 0; }
+        fi
+        if [ "$kind" = themes ] && is_adwaita "${items[i]}"; then
+            adwaita_theme_switch; exit 0
         fi
         if [ "$kind" = themes ]; then
             # accent: argument, else the submenu; copy the scheme's folders afresh (clean) and re-apply it
@@ -1046,15 +1135,11 @@ case "$action" in
             copy_item "${items[i]}"; pty_cleanup; gsv_install "${items[i]}"; gh_install "${items[i]}"; app_install "${items[i]}"
             [ -z "$accent_pick" ] || echo "Accent: $accent_pick."
         fi
-        set_ini() {  # set_ini KEY VALUE: rewrite the key in the GTK settings.ini files that already have it
-            local f; for f in "$cfg/gtk-3.0/settings.ini" "$cfg/gtk-4.0/settings.ini"; do
-                if [ -f "$f" ] && grep -q "^$1=" "$f"; then sed -i "s|^$1=.*|$1=$2|" "$f"; fi
-            done
-        }
         if [ "$kind" = icons ]; then
             gsettings set org.gnome.desktop.interface icon-theme "${items[i]}"
             set_ini gtk-icon-theme-name "${items[i]}"
-            echo "Icon theme is now ${items[i]}."
+            if is_adwaita "${items[i]}"; then echo "Icon theme is now Adwaita (the GNOME default; no icon folder was installed or removed)."
+            else echo "Icon theme is now ${items[i]}."; fi
         else
             sc="${items[i]}"; gtk=""; shell_d=""; shell_l=""
             while read -r f; do

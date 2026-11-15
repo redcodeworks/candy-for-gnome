@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- candy-for-gnome: adwaita -->
+<!-- Neutral bat theme: no token colors; the foreground #00000001 is bat's code for "the terminal's default color" (the same trick as bat's own ansi theme), so the text keeps the terminal colors. -->
+<plist version="1.0">
+<dict>
+  <key>name</key><string>candy-for-gnome adwaita (neutral)</string>
+  <key>settings</key>
+  <array>
+    <dict>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key><string>#00000001</string>
+      </dict>
+    </dict>
+  </array>
+</dict>
+</plist>
