@@ -18,8 +18,8 @@ NAMES = ('black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan', 'white')
 def text(scheme, v):
     t = v.term; L = A.header(scheme, 'alacritty', v)
     L += ['[colors.primary]', 'background = "%s"' % t['Background'], 'foreground = "%s"' % t['Foreground'], '',
-          '[colors.cursor]', 'text = "%s"' % t['Background'], 'cursor = "%s"' % t['Cursor'], '',
-          '[colors.selection]', 'text = "%s"' % t['Foreground'], 'background = "%s"' % v.sel, '']
+          '[colors.cursor]', 'text = "%s"' % t['CursorText'], 'cursor = "%s"' % t['Cursor'], '',
+          '[colors.selection]', 'text = "%s"' % t['SelectionForeground'], 'background = "%s"' % t['SelectionBackground'], '']
     for tab, off in (('normal', 0), ('bright', 8)):
         L.append('[colors.%s]' % tab); L += ['%s = "%s"' % (n, t['Color%d' % (i + off)]) for i, n in enumerate(NAMES)]; L.append('')
     return '\n'.join(L).rstrip('\n') + '\n'

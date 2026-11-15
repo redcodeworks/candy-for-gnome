@@ -11,6 +11,8 @@ scheme.toml is small data: per variant ([dark], optional [light]) the roles
   cyan blue magenta purple (pink optional), plus [<variant>.ansi] = the six terminal accents
   (red green yellow blue magenta cyan, normal not bright), optionally a seventh `orange` (the scheme's own orange role
   colour; a scheme whose upstream has no orange, rose-pine and fairy-floss, simply omits it) and the root key default_accent.
+Optional per scheme: `accents_default_first = true` (the default accent leads the accent list), `[<variant>.accent_colors]` (an accent's colour for the
+toolkit themes when it must differ from the terminal colour of that name, e.g. a light scheme whose terminal background is its accent).
 Optional roles: popover (default surface_high), accent_fg (default bg_deep), warning_fg,
 [<variant>.adw] secondary_sidebar (libadwaita override). Missing roles are DERIVED by fixed rules
 (the generated palette.toml says which):
@@ -79,8 +81,10 @@ def build(S):
     ink = {'dark': min(inks_dark, key=lum), 'light': max(inks_light, key=lum)}
     acc, rl = {}, {}
     for v, R in roles.items():
-        A = S[v]['ansi']; table = {}
-        for n in [x for x in ANSI if x in A]:
+        A = dict(S[v]['ansi']); A.update(S[v].get('accent_colors', {})); table = {}   # accent_colors: toolkit accent differs from the terminal colour
+        order = [x for x in ANSI if x in A]
+        if S.get('accents_default_first') and dflt in order: order.remove(dflt); order.insert(0, dflt)   # the picker offers the default first
+        for n in order:
             fg, _ = pick_fg(R, A[n], [ink['dark'], ink['light']]); table[n] = [A[n].lower(), fg.lower()]
         dfl = table[dflt][1]
         if len({t[1] for t in table.values()}) > 1:

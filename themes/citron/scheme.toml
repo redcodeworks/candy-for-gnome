@@ -1,0 +1,103 @@
+# SPDX-License-Identifier: MIT
+# Role file for tools/palette-from-scheme.py (-> palette.toml). Citron: a lime-yellow accent theme, own palette (no upstream project, no licence to carry).
+# Values chosen by Kevin (2026-11-15) after prototyping: accent citron #EEFB87, cool blue-grey neutrals (#1F242F dark, #F2F4F9 light).
+# TERMINAL: there is no Ptyxis built-in for it, so BOTH variants say no_builtin and the terminals (Ghostty, Alacritty, kitty) show the own values below; Ptyxis
+# itself shows the nearest built-in named in `ptyxis`. The six terminal accents are laid out by slot, not by hue: slot 2 (key `green`) is a light blue and
+# slot 4 (key `blue`) is citron, so citron dominates directories and executables in the dark terminal; hence the accent called `blue` IS citron (see
+# default_accent). Light terminal = a citron page (background #EEFB87, ink #1F242F); every colour 1-6 and 9-14 is at least 4.5:1 on it, slots 7 and 15 are
+# deliberately near-invisible on it (normal for light schemes). The light GTK/libadwaita/Shell surfaces stay on #F2F4F9 (a whole citron window would hurt
+# readability) and use citron only as the accent and highlight, with dark ink (#1F242F) on it.
+# DERIVED / INVENTED (not from the prototype): the `orange` role in both variants (the prototype has no orange; used by the Shell's orange family only),
+# the `selection` roles (bg_deep 20 % towards fg in dark, 12 % in light; editors and toolkits draw text over them, so they are not citron; the TERMINAL
+# selection is citron, see [<variant>.terminal]), the role colours `green` and `cyan` of the dark variant (taken from the teal and the light blue slots).
+title = "Citron"
+gtk_name = "Citron"
+shell_name = "Citron-Shell"
+credit = "Citron: own palette (a lime-yellow accent theme), no upstream source"
+ptyxis = "nord"
+ptyxis_reason = "no Ptyxis built-in matches Citron (both variants say no_builtin); the sectioned `nord` built-in is only the stand-in Ptyxis shows in both modes."
+default_accent = "blue"
+accents_default_first = true
+
+[dark]
+bg_deep = "#1f242f"
+bg = "#1f242f"
+surface = "#2b303c"
+fg = "#f2f4f9"
+selection = "#494e57"
+red = "#ff3617"
+orange = "#e8883a"
+yellow = "#bf9856"
+green = "#3ba184"
+cyan = "#91c1f2"
+blue = "#eefb87"
+magenta = "#b77de4"
+purple = "#b77de4"
+accent_fg = "#1f242f"
+[dark.ansi]
+red = "#ff3617"
+green = "#91c1f2"
+yellow = "#bf9856"
+blue = "#eefb87"
+magenta = "#b77de4"
+cyan = "#3ba184"
+
+[dark.terminal]
+no_builtin = "no Ptyxis built-in is Citron; the terminals show these own values (Ghostty, Alacritty, kitty)"
+black = "#2b303c"           # Color0
+white = "#dee2e9"           # Color7
+bright_black = "#818995"    # Color8
+bright_red = "#ff624a"      # Color9
+bright_green = "#bddbf9"    # Color10
+bright_yellow = "#d2b076"   # Color11
+bright_blue = "#f7ffba"     # Color12
+bright_magenta = "#eadcf5"  # Color13
+bright_cyan = "#4ac5a2"     # Color14
+bright_white = "#ffffff"    # Color15
+cursor = "#eefb87"
+cursor_text = "#1f242f"
+selection = "#eefb87"
+selection_text = "#1f242f"
+
+[light]
+bg_deep = "#f2f4f9"
+bg = "#f2f4f9"
+fg = "#1f242f"
+selection = "#d9dbe1"
+red = "#d91d00"
+orange = "#b35a00"
+yellow = "#866733"
+green = "#2c7862"
+cyan = "#38767e"
+blue = "#186fc8"
+magenta = "#9249cb"
+purple = "#9249cb"
+accent_fg = "#1f242f"
+[light.ansi]
+red = "#d91d00"
+green = "#2c7862"
+yellow = "#866733"
+blue = "#186fc8"
+magenta = "#9249cb"
+cyan = "#38767e"
+[light.accent_colors]
+blue = "#eefb87"   # the toolkit accent `blue` is citron in both variants; the light terminal's own slot 4 is the blue #186fc8
+
+[light.terminal]
+no_builtin = "no Ptyxis built-in is Citron; the terminals show these own values on a citron page (Ghostty, Alacritty, kitty)"
+foreground = "#1f242f"
+background = "#eefb87"   # the citron page; the GTK surfaces stay on #f2f4f9
+black = "#1f242f"           # Color0
+white = "#c2c7cf"           # Color7
+bright_black = "#525965"    # Color8
+bright_red = "#cd260c"      # Color9
+bright_green = "#356f5e"    # Color10
+bright_yellow = "#7c643d"   # Color11
+bright_blue = "#246fbc"     # Color12
+bright_magenta = "#8e52bd"  # Color13
+bright_cyan = "#426e74"     # Color14
+bright_white = "#f2f4f9"    # Color15
+cursor = "#1f242f"
+cursor_text = "#eefb87"
+selection = "#1f242f"
+selection_text = "#eefb87"

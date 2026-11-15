@@ -36,6 +36,7 @@ chalk	Chalk	-	built		https://github.com/Gogh-Co/Gogh/tree/master/themes/Chalk.ym
 chalkboard	Chalkboard	-	built		https://github.com/Gogh-Co/Gogh/tree/master/themes/Chalkboard.yml
 chameleon	Chameleon	-	built		https://github.com/Gogh-Co/Gogh/tree/master/themes/Chameleon.yml
 ciapre	Ciapre	-	excluded	generate failed: gnome-shell-dark.css 201379 -> 202095 bytes | libadwaita 2896 bytes | VERIFY FAILED: ciapre accent red Ciapre-Shell-Dark/gnome-shell/gnome-shell.css (sed result differs from the generated file) | error: recipe `generate` failed with exit code 1	https://github.com/Gogh-Co/Gogh/tree/master/themes/Ciapre.yml
+citron	-	-	existing	own palette, no Ptyxis built-in (both variants no_builtin)	-
 clrs	Clrs	-	built		https://github.com/Gogh-Co/Gogh/tree/master/themes/Clrs.yml
 cobalt-2	Cobalt 2	-	built		https://github.com/Gogh-Co/Gogh/tree/master/themes/Cobalt%202.yml
 cobalt-neon	Cobalt Neon	-	built		https://github.com/Gogh-Co/Gogh/tree/master/themes/Cobalt%20Neon.yml
