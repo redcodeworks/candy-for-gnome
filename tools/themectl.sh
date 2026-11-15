@@ -872,7 +872,7 @@ copy_folder() {  # replace folder $1 of item $2 in dest: remove the set's folder
         c=$(clone_of "${i_src[$it]}")
         case "${src_layout[${i_src[$it]}]}" in
             top) cp -a "$c/${i_dir[$it]}" "$dest/$f" ;;
-            root) mkdir -p "$dest/$f"; (cd "$c" && tar cf - --exclude=./.git --exclude=./.github --exclude=./preview --exclude='./README*' --exclude='./LICENSE*' .) | tar xf - -C "$dest/$f" ;;
+            root) mkdir -p "$dest/$f"; (cd "$c" && tar cf - --exclude=./.git --exclude=./.github --exclude='./preview*' --exclude='./README*' --exclude=./update.sh --exclude=./images --exclude=./CONTRIBUTING.md --exclude=./.gitignore .) | tar xf - -C "$dest/$f" ;;
             script) cp -a "$build_dir/$f" "$dest/$f" ;;
         esac
         gtk-update-icon-cache -q -f -t "$dest/$f" 2>/dev/null || true
