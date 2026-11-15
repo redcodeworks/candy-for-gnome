@@ -26,6 +26,8 @@ just switch-icon Papirus-Dark
 Themes go to `~/.themes`, icons to `~/.local/share/icons`, as real copies. Checklists use `gum` when it is installed, otherwise a built-in picker: SPACE ticks,
 `/` filters, ENTER confirms, q cancels.
 
+On a terminal, key messages start with an emoji (✅ installed, 🎨 applied, 🔄 updated, 🧹 removed, ❗ something for you to do, 🟡 warning, ❌ error). Set `CANDY_PLAIN=1` or `NO_EMOJI=1` to switch them off; piped or captured output never has them.
+
 | Themes | Icons | |
 |---|---|---|
 | `list-themes` | `list-icons` | what is available (✓ = installed) |

@@ -65,6 +65,7 @@ case "$1" in
 esac
 SH
 chmod +x "$T/bin/dconf"
+export CANDY_PLAIN=1   # the pty tests read the text of the messages: emojis stay off unless the emoji tests unset this themselves
 export THEMES_PICKER=builtin THEMES_SWITCH_AFTER_INSTALL=0   # tests choose the picker explicitly (a developer machine may have gum) and enable the switch menu after an install only in their own pty tests
 export PTYXIS_PALETTES="$T/ptyxis-palettes" GTKSOURCEVIEW_STYLES="$T/gsv-styles" FLATPAK_APPS="$T/var-app"
 export CANDY_FOR_GNOME_BREW_BIN="$T/nobrew" CANDY_FOR_GNOME_APPS_PATH="$T/noapps"   # no Homebrew bin dir and no PATH search (the container may ship bat): the per-app themes see only what a test points the knobs at
@@ -984,6 +985,47 @@ firsts=$(grep -E '^[A-Za-z-]+  \(' "$STUB_LOG" | head -2 | sed 's/  (.*//' | tr 
 rm -f "$STUB_LOG"; out=$(GUM_STUB_EXIT=130 ICONS_DEST=$IP gumpty tools/themectl.sh icons install Fake-Light | tr -d '\r')
 printf '%s' "$out" | grep -q "To switch later: just switch-icon Fake-Light" && chk ok "icons: Esc skips and prints just switch-icon NAME" || chk fail "icon cancel: $(printf '%s' "$out" | tail -3)"
 rm -rf "$AP" "$IP"
+
+# ---- message emojis (terminal only; CANDY_FORCE_EMOJI exists for this test) ------------------------------------------------------------------
+echo "=== message emojis"
+EMO=(✅ 🎨 🔄 ❗ 🧹 ❌ 🟡 🔁)
+has_emoji() { local e; for e in "${EMO[@]}"; do case "$1" in *"$e"*) return 0 ;; esac; done; return 1; }
+strip_emoji() { local e s=""; for e in "${EMO[@]}"; do s="$s|$e"; done; sed -E "s/^(${s#|}) //"; }
+EM="$T/emoji-themes"
+emo_run() {   # emo_run <mode> : install, switch (explicit accent), remove of nordic from a clean state; mode plain|force|<env words>
+    rm -rf "$EM" "$XDG_CONFIG_HOME/gtk-4.0" "$XDG_STATE_HOME/candy-for-gnome"; mkdir -p "$XDG_CONFIG_HOME/gtk-4.0"
+    env "$@" THEMES_DEST="$EM" tools/themectl.sh themes install nordic </dev/null 2>&1
+    env "$@" THEMES_DEST="$EM" tools/themectl.sh themes switch nordic cyan </dev/null 2>&1
+    env "$@" THEMES_DEST="$EM" tools/themectl.sh themes switch nordic nosuchaccent </dev/null 2>&1
+    env "$@" THEMES_DEST="$EM" tools/themectl.sh themes remove nordic </dev/null 2>&1
+}
+plain_out=$(emo_run TERM=xterm-256color)          # CANDY_PLAIN=1 from the suite environment
+has_emoji "$plain_out" && chk fail "captured output (CANDY_PLAIN=1) contains an emoji" || chk ok "captured output has no emoji"
+cap_out=$(emo_run -u CANDY_PLAIN TERM=xterm-256color)   # captured, not a terminal, no force
+has_emoji "$cap_out" && chk fail "captured output (not a terminal) contains an emoji" || chk ok "output that is not a terminal has no emoji, even without CANDY_PLAIN"
+[ "$cap_out" = "$plain_out" ] && chk ok "captured output is identical with and without CANDY_PLAIN" || chk fail "captured output differs by CANDY_PLAIN"
+force_out=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 TERM=xterm-256color)
+has_emoji "$force_out" && chk ok "forced mode prints emojis" || chk fail "forced mode printed no emoji"
+[ "$(printf '%s\n' "$force_out" | strip_emoji)" = "$plain_out" ] && chk ok "with the emoji prefixes removed, the forced output equals the plain output byte for byte" || { chk fail "forced output text differs from plain"; diff <(printf '%s\n' "$force_out" | strip_emoji) <(printf '%s\n' "$plain_out") | head -8; }
+badn=$(printf '%s\n' "$force_out" | grep -c -E '^(✅|🎨|🔄|❗|🧹|❌|🟡|🔁) (✅|🎨|🔄|❗|🧹|❌|🟡|🔁)'); [ "$badn" -eq 0 ] && chk ok "never two emojis on one line" || chk fail "double emoji on $badn line(s)"
+for want in "✅ Installed Nordic-Nord" "🎨 GTK theme is now Nordic-Nord." "🎨 Accent: cyan." "🔁 Restart GTK apps to pick up the new theme." "🧹 Removed $EM/Nordic-Nord" "❌ 'nosuchaccent' is not an accent of nordic"; do
+    printf '%s\n' "$force_out" | grep -qF -- "$want" && chk ok "forced: '$want'" || chk fail "forced: missing '$want'"
+done
+printf '%s\n' "$force_out" | grep -E '^(✅|🎨|🔄|❗|🧹|❌|🟡|🔁) ' | grep -q 'Shell theme is now' && chk ok "forced: the Shell theme line carries 🎨" || chk fail "forced: Shell theme line"
+printf '%s\n' "$force_out" | grep -E '^ ' | grep -qE '(✅|🎨|🔄|❗|🧹|❌|🟡|🔁)' && chk fail "an indented continuation line carries an emoji" || chk ok "indented and data lines carry no emoji"
+off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 CANDY_PLAIN=1 TERM=xterm-256color); has_emoji "$off" && chk fail "CANDY_PLAIN=1 did not switch emojis off" || chk ok "CANDY_PLAIN=1 switches emojis off (even when forced)"
+off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI=1 TERM=xterm-256color); has_emoji "$off" && chk fail "NO_EMOJI=1 did not switch emojis off" || chk ok "NO_EMOJI switches emojis off"
+off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI= TERM=xterm-256color); has_emoji "$off" && chk fail "an empty NO_EMOJI did not switch emojis off" || chk ok "NO_EMOJI set to an empty value still switches emojis off"
+off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 TERM=dumb); has_emoji "$off" && chk fail "TERM=dumb did not switch emojis off" || chk ok "TERM=dumb switches emojis off"
+# a real pseudo-terminal: stdout is a terminal, so no force is needed; stderr lines are tested on their own stream
+rm -rf "$EM" "$XDG_CONFIG_HOME/gtk-4.0"; mkdir -p "$XDG_CONFIG_HOME/gtk-4.0"
+pty_out=$(env -u CANDY_PLAIN THEMES_DEST="$EM" TERM=xterm-256color script -qec "tools/themectl.sh themes install nordic" /dev/null </dev/null 2>&1 | tr -d '\r')
+printf '%s\n' "$pty_out" | grep -q '^✅ Installed Nordic-Nord' && chk ok "pty: stdout on a terminal gets the emoji without any force" || chk fail "pty: no emoji on a terminal: $(printf '%s' "$pty_out" | head -3)"
+pty_out=$(env -u CANDY_PLAIN THEMES_DEST="$EM" NO_EMOJI=1 TERM=xterm-256color script -qec "tools/themectl.sh themes install nordic" /dev/null </dev/null 2>&1 | tr -d '\r')
+has_emoji "$pty_out" && chk fail "pty: NO_EMOJI ignored on a terminal" || chk ok "pty: NO_EMOJI keeps a terminal plain"
+err_tty=$(env -u CANDY_PLAIN THEMES_DEST="$EM" TERM=xterm-256color bash -c 'tools/themectl.sh themes switch nordic nosuchaccent 2>&1 >/dev/null' </dev/null)
+has_emoji "$err_tty" && chk fail "stderr that is captured got an emoji" || chk ok "stderr that is not a terminal gets no emoji"
+rm -rf "$EM"
 
 echo; echo "TOTAL: $pass PASS, $fail FAIL"
 [ "$fail" -eq 0 ]

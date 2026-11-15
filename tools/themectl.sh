@@ -45,6 +45,27 @@
 # FORCE=1 (replace or remove folders that were not installed by candy-for-gnome without asking).
 # GNOME reads dconf. GSETTINGS_BACKEND=keyfile (set by the Ghostty AppImage's shells, which bundle GTK without the dconf module) would send every
 # gsettings call to a private file GNOME never reads, and make `get` answer from it: ignore that one value (others are left alone).
+# Message emojis, the one place (also covers tools/apps.sh, which is sourced): a function named echo wraps the builtin. With ONE argument that
+# starts with a known message prefix it puts one emoji and a space in front, but only when the stream the line goes to (fd 1 here, so
+# `>&2` lines test stderr, and captured output, files and pipes are never a terminal) is a terminal, TERM is not dumb or empty, and neither
+# CANDY_PLAIN (non-empty, not 0) nor NO_EMOJI (set, any value) says no. The text after the emoji is never changed, so data lines (no match)
+# stay as they are. CANDY_FORCE_EMOJI=1 skips the terminal test and exists only for tools/test.sh.
+echo() {
+    if [ "$#" -ne 1 ] || { [ ! -t 1 ] && [ "${CANDY_FORCE_EMOJI:-}" != 1 ]; } || [ -n "${NO_EMOJI+x}" ] \
+       || { [ -n "${CANDY_PLAIN:-}" ] && [ "$CANDY_PLAIN" != 0 ]; } || [ -z "${TERM:-}" ] || [ "$TERM" = dumb ]; then builtin echo "$@"; return; fi
+    local e=""
+    case "$1" in
+        Refused:\ *|Could\ not\ *|install.sh\ failed*|install.sh\ did\ not*|No\ accent\ map*|usage:\ *|*\ is\ not\ a\ theme\ here*|*\ is\ not\ a\ icon\ set\ here*|*\ is\ not\ an\ accent\ of\ *) e=❌ ;;
+        WARNING:\ *|warning:\ *|Note:\ *|*\ not\ applied*|Left\ *\ alone*|Not\ switching\ the\ *|Skipping\ *) e=🟡 ;;
+        Installed\ *) e=✅ ;;
+        Updated\ *|Replaced\ *|Edited\ *) e=🔄 ;;
+        Removed\ *) e=🧹 ;;
+        Accent:\ *|*\ is\ now\ *|*\ are\ now\ *|Ptyxis\ palette\ key\ reads\ *) e=🎨 ;;
+        Restart\ GTK\ apps*) e=🔁 ;;
+        Ghostty\ has\ no\ auto-reload*|Claude\ Code:\ select\ it\ with*|Next:\ run\ *|Not\ switching.\ To\ switch\ later*|Ptyxis:\ *\ Run\ switch-theme\ again*) e=❗ ;;
+    esac
+    if [ -n "$e" ]; then builtin echo "$e $1"; else builtin echo "$1"; fi
+}
 if [ "${GSETTINGS_BACKEND:-}" = keyfile ]; then unset GSETTINGS_BACKEND; echo "Note: GSETTINGS_BACKEND=keyfile ignored (GNOME reads dconf)."; fi
 set -euo pipefail
 
