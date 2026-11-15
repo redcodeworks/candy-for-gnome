@@ -852,12 +852,12 @@ out=$(ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just remove-icon WhiteSur-nord
 mkdir -p "$WSD/WhiteSur-dark"; echo mine > "$WSD/WhiteSur-dark/mine.txt"
 ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just install-icon WhiteSur </dev/null >/dev/null 2>&1
 [ -f "$WSD/WhiteSur-dark/mine.txt" ] && [ ! -e "$WSD/WhiteSur-dark/.candy-for-gnome" ] && chk ok "script-t: a same-named third-party folder is left alone without a terminal" || chk fail "script-t: third-party folder touched"
-rm -rf "$WSD"/*
+rm -rf "${WSD:?}"/*
 # verify_source: a registry variant missing from install.sh and a missing install.sh are warned about, never fatal
 printf 'WhiteSur|file://%s/icons-ws|script-t|%s teal\n' "$T" "$V9" > "$T/ws2.conf"; rm -rf "$T/cache/icons/WhiteSur"
 out=$(ICON_SOURCES="$T/ws2.conf" ICONS_DEST="$WSD" just install-icon WhiteSur 2>&1)
 printf '%s\n' "$out" | grep -q 'warning: WhiteSur: registry says teal, upstream has no teal' && [ -d "$WSD/WhiteSur" ] && ! printf '%s\n' "$out" | grep -q 'registry says purple' && chk ok "script-t: verify_source warns about a variant install.sh lacks, and the install still works" || chk fail "script-t: verify_source ($out)"
-rm -rf "$WSD"/* "$T/cache/icons/WhiteSur"
+rm -rf "${WSD:?}"/* "$T/cache/icons/WhiteSur"
 # the shipped registry declares WhiteSur with the nine colors
 reg=$(grep '^WhiteSur|' tools/icon-sources.conf)
 [ "$reg" = "WhiteSur|https://github.com/vinceliuice/WhiteSur-icon-theme.git|script-t|$V9" ] && chk ok "registry: the WhiteSur line (script-t, nine colors)" || chk fail "registry: WhiteSur line ($reg)"
