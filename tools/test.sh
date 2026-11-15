@@ -48,6 +48,7 @@ cat > "$T/bin/gsettings" <<SH
 #!/bin/sh
 case "\$1" in
   set) echo "set \$2 \$3 \$4" >> "$LOG" ;;
+  reset) echo "reset \$2 \$3" >> "$LOG" ;;
   get) case "\$3" in color-scheme) echo "'prefer-dark'";; accent-color) echo "'slate'";; gtk-theme) echo "'Adwaita'";; icon-theme) echo "'Adwaita'";; esac ;;
   list-schemas) echo org.gnome.shell.extensions.user-theme ;;
 esac
@@ -62,6 +63,7 @@ case "$1" in
   read) awk -F'\t' -v k="$2" '$1==k {v=$2} END {if (v!="") print v}' "$db" ;;
   write) grep -v "^$2	" "$db" > "$db.new" || true; printf '%s\t%s\n' "$2" "$3" >> "$db.new"; mv "$db.new" "$db" ;;
   list) awk -F'\t' -v d="$2" 'index($1,d)==1 {print $1}' "$db" ;;
+  reset) grep -v "^$2	" "$db" > "$db.new" || true; mv "$db.new" "$db" ;;
 esac
 SH
 chmod +x "$T/bin/dconf"
@@ -83,6 +85,7 @@ if [ "$1" = run ]; then   # flatpak run --command=gsettings APP set|get SCHEMA K
     case "$1" in
       set) [ -n "${FLATPAK_GS_RO:-}" ] || { grep -vF "$app	$2	$3	" "$gs" > "$gs.new" || true; printf '%s\t%s\t%s\t%s\n' "$app" "$2" "$3" "$4" >> "$gs.new"; mv "$gs.new" "$gs"; } ;;
       get) echo "'$(awk -F'\t' -v a="$app" -v s="$2" -v k="$3" '$1==a && $2==s && $3==k {v=$4} END {print v}' "$gs")'" ;;
+      reset) [ -n "${FLATPAK_GS_RO:-}" ] || { grep -vF "$app	$2	$3	" "$gs" > "$gs.new" || true; mv "$gs.new" "$gs"; } ;;
     esac; exit 0
 fi
 [ "$1" = override ] && [ "$2" = --user ] || exit 2
@@ -200,10 +203,10 @@ PY
 
 # ---- featured themes come first in list-theme and the checklists ------------------------------------------------------------
 echo "=== featured themes"
-fl=$(THEMES_DEST="$T/feat" FEATURED_THEMES="dracula nordic nosuch" tools/themectl.sh themes list | head -2 | awk '{print $2}' | tr '\n' ' ')
+fl=$(THEMES_DEST="$T/feat" FEATURED_THEMES="dracula nordic nosuch" tools/themectl.sh themes list | sed 1d | head -2 | awk '{print $2}' | tr '\n' ' ')
 [ "$fl" = "dracula nordic " ] && chk ok "FEATURED_THEMES order is the list order (a missing scheme is skipped)" || chk fail "featured order: $fl"
-rest=$(THEMES_DEST="$T/feat" FEATURED_THEMES="dracula nordic" tools/themectl.sh themes list | sed 1,2d | awk '{print $1}' | grep -vc '★')
-[ "$rest" -ge 1 ] && [ "$(THEMES_DEST="$T/feat" FEATURED_THEMES="dracula nordic" tools/themectl.sh themes list | sed 1,2d | awk '{print $1}' | LC_ALL=C sort -c 2>&1 | wc -l)" -eq 0 ] && chk ok "the other schemes follow alphabetically" || chk fail "rest not alphabetical"
+rest=$(THEMES_DEST="$T/feat" FEATURED_THEMES="dracula nordic" tools/themectl.sh themes list | sed 1,3d | awk '{print $1}' | grep -vc '★')
+[ "$rest" -ge 1 ] && [ "$(THEMES_DEST="$T/feat" FEATURED_THEMES="dracula nordic" tools/themectl.sh themes list | sed 1,3d | awk '{print $1}' | LC_ALL=C sort -c 2>&1 | wc -l)" -eq 0 ] && chk ok "the other schemes follow alphabetically" || chk fail "rest not alphabetical"
 
 # ---- light-only scheme (bluloco-light): gtk.css only, Shell-Light only, switch works under a dark desktop ----------------------------
 echo "=== light-only scheme"
@@ -986,6 +989,101 @@ rm -f "$STUB_LOG"; out=$(GUM_STUB_EXIT=130 ICONS_DEST=$IP gumpty tools/themectl.
 printf '%s' "$out" | grep -q "To switch later: just switch-icon Fake-Light" && chk ok "icons: Esc skips and prints just switch-icon NAME" || chk fail "icon cancel: $(printf '%s' "$out" | tail -3)"
 rm -rf "$AP" "$IP"
 
+# ---- Adwaita (GNOME default): switch-theme Adwaita / switch-icon Adwaita --------------------------------------------------------------------
+echo "=== adwaita"
+links_of() { find "$CFGA" -type l -printf '%p -> %l\n' | sort; }
+app_reset; aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+: > "$LOG"; : > "$DCONF_DB"; printf '%s\t%s\n' /org/gnome/Ptyxis/profile-uuids "['aaa', 'bbb']" /org/gnome/Ptyxis/default-profile-uuid "'aaa'" /org/gnome/Ptyxis/Profiles/aaa/palette "'x'" /org/gnome/Ptyxis/Profiles/bbb/label "'y'" >> "$DCONF_DB"
+printf '%s\n' '{"name": "mine"}' > "$T/adw-note"
+aps just switch-theme gruvbox-material blue </dev/null >/dev/null 2>&1
+snap_a="$(cfg_snapshot)"; links_a="$(links_of)"
+[ -n "$links_a" ] && printf '%s\n' "$links_a" | grep -q 'gruvbox-material' && [ -f "$HA/.claude/themes/candy-for-gnome.json" ] && chk ok "adwaita setup: a scheme is switched in, links and the Claude Code file exist" || chk fail "adwaita setup"
+: > "$LOG"; adw_out=$(aps just switch-theme Adwaita </dev/null 2>&1); adw_rc=$?
+[ "$adw_rc" -eq 0 ] && chk ok "switch-theme Adwaita succeeds without a name picker or accent question" || chk fail "adwaita rc $adw_rc: $adw_out"
+grep -q "set org.gnome.desktop.interface gtk-theme Adwaita" "$LOG" && ! grep -q "color-scheme" "$LOG" && chk ok "adwaita: GTK theme set to Adwaita, the light/dark preference is not touched" || chk fail "adwaita gtk: $(tr '\n' ';' < "$LOG")"
+grep -q "reset org.gnome.shell.extensions.user-theme name" "$LOG" && chk ok "adwaita: the User Themes shell theme key is reset" || chk fail "adwaita shell key"
+! grep -q '^/org/gnome/Ptyxis/Profiles/aaa/palette' "$DCONF_DB" && grep -q '^/org/gnome/Ptyxis/profile-uuids' "$DCONF_DB" && chk ok "adwaita: the Ptyxis palette key of the profile is reset (other keys stay)" || chk fail "adwaita ptyxis"
+[ ! -e "$CFGA/gtk-4.0/gtk.css" ] || { ! grep -q libadwaita-gen.py "$CFGA/gtk-4.0/gtk.css"; } && chk ok "adwaita: the generated libadwaita file is gone" || chk fail "adwaita libadwaita file"
+[ "$(cfg_snapshot)" = "$snap_a" ] && chk ok "adwaita: no user config changed (checksums of Alacritty, Helix, Yazi, bat, zellij, eza and Claude settings)" || chk fail "adwaita changed a user config"
+bad=0; while IFS= read -r l; do tgt="${l##* -> }"; lnk="${l%% -> *}"; case "$tgt" in *adwaita*) [ -e "$(dirname "$lnk")/$tgt" ] || bad=1 ;; *) bad=1 ;; esac; done < <(links_of)
+[ "$bad" -eq 0 ] && [ -n "$(links_of)" ] && chk ok "adwaita: every managed link points at an existing neutral file of the repo" || { chk fail "adwaita links: $(links_of)"; }
+for want in "alacritty/themes/candy-for-gnome.toml -> candy-for-gnome-adwaita-dark.toml" "helix/themes/candy-for-gnome.toml -> candy-for-gnome-adwaita-dark.toml" "yazi/flavors/candy-for-gnome-light.yazi -> candy-for-gnome-adwaita-dark.yazi" "bat/themes/candy-for-gnome-dark.tmTheme -> candy-for-gnome-adwaita-dark.tmTheme" "zellij/themes/candy-for-gnome.kdl -> candy-for-gnome-adwaita.kdl" "kitty/no-preference-theme.auto.conf -> themes/candy-for-gnome-adwaita-dark.conf"; do
+    links_of | grep -qF -- "$want" && chk ok "adwaita link: $want" || { [ "${want%%/*}" = kitty ] && [ ! -d "$CFGA/kitty" ] && chk ok "adwaita link: kitty has no config here (skipped)" || chk fail "adwaita link missing: $want"; }
+done
+[ ! -e "$HA/.claude/themes/candy-for-gnome.json" ] && [ -f "$HA/.claude/settings.json" ] && chk ok "adwaita: the Claude Code theme file is removed (it carried our marker), settings.json stays" || chk fail "adwaita claude"
+[ ! -L "$CFGA/eza/theme.yml" ] && chk ok "adwaita: eza's own regular theme.yml is not touched (no managed link there)" || chk fail "adwaita eza"
+printf '%s\n' "$adw_out" | grep -q "neutral" && chk ok "adwaita: the output names the retargeted tools" || chk fail "adwaita output: $adw_out"
+links_b="$(links_of)"; aps just switch-theme Adwaita </dev/null >/dev/null 2>&1; [ "$(links_of)" = "$links_b" ] && [ "$(cfg_snapshot)" = "$snap_a" ] && chk ok "adwaita: running it twice changes nothing more (idempotent)" || chk fail "adwaita not idempotent"
+aps just switch-theme adwaita </dev/null >/dev/null 2>&1 && chk ok "adwaita: the name is accepted in any case" || chk fail "adwaita lower case"
+aps just switch-theme gruvbox-material blue </dev/null >/dev/null 2>&1
+[ "$(links_of)" = "$links_a" ] && [ "$(cfg_snapshot)" = "$snap_a" ] && [ -f "$HA/.claude/themes/candy-for-gnome.json" ] && chk ok "adwaita: switch-theme <scheme> points every link back and restores the Claude Code file (reversible)" || chk fail "adwaita not reversible: $(links_of)"
+# a libadwaita file of the user's own kept as .bak comes back, an unrelated gtk.css is left alone
+printf '/* mine */\n' > "$CFGA/gtk-4.0/gtk.css.bak"; aps just switch-theme gruvbox-material blue </dev/null >/dev/null 2>&1; aps just switch-theme Adwaita </dev/null >/dev/null 2>&1
+grep -q "mine" "$CFGA/gtk-4.0/gtk.css" && [ -f "$CFGA/gtk-4.0/gtk.css.bak" ] && chk ok "adwaita: the user's own gtk.css (kept as .bak) is put back, the backup stays" || chk fail "adwaita gtk.css backup"
+printf '/* unrelated */\n' > "$CFGA/gtk-4.0/gtk.css"; aps just switch-theme Adwaita </dev/null 2>&1 | grep -q "left alone" && grep -q unrelated "$CFGA/gtk-4.0/gtk.css" && chk ok "adwaita: a gtk.css not generated by candy-for-gnome is left alone" || chk fail "adwaita foreign gtk.css"
+# without any managed link nothing is created
+app_reset; aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1; rm -rf "$CFGA/alacritty/themes" "$CFGA/helix/themes/candy-for-gnome*"
+aps just switch-theme Adwaita </dev/null >/dev/null 2>&1; [ -z "$(links_of)" ] && [ ! -e "$CFGA/zellij/themes/candy-for-gnome-adwaita.kdl" ] && chk ok "adwaita: tools without a managed link get no new link and no neutral file" || chk fail "adwaita created files: $(links_of)"
+# listing and the icon switch
+aps just list-themes </dev/null 2>&1 | head -1 | grep -q "Adwaita (GNOME default)" && chk ok "list-themes: Adwaita (GNOME default) is the first row" || chk fail "list-themes first row"
+out=$(just list-icons </dev/null 2>&1 | head -1); case "$out" in *"Adwaita (GNOME default)"*) chk ok "list-icons: Adwaita (GNOME default) is the first row" ;; *) chk fail "list-icons first row: $out" ;; esac
+: > "$LOG"; mkdir -p "$T/adw-icons"; ICONS_DEST="$T/adw-icons" just switch-icon Adwaita </dev/null >/dev/null 2>&1
+grep -q "set org.gnome.desktop.interface icon-theme Adwaita" "$LOG" && [ -z "$(ls -A "$T/adw-icons")" ] && chk ok "switch-icon Adwaita sets the icon theme and installs or removes no folder" || chk fail "switch-icon Adwaita: $(tr '\n' ';' < "$LOG")"
+# the picker: Adwaita is the first entry of the switch menu (built-in picker, numbered list without a terminal)
+out=$(printf "1\n" | just switch-theme 2>&1); printf '%s' "$out" | grep -q "1) Adwaita (GNOME default)" && chk ok "the switch-theme list offers Adwaita (GNOME default) first" || chk fail "switch menu: $(printf '%s' "$out" | head -4)"
+
+# ---- grouped icon menus: family, then colour, then style (stub gum with a queue of answers) -----------------------------------------------------
+echo "=== icon families"
+GQ="$T/gum-queue"; GC="$T/gum-calls"; GSB="$T/gum-seq"; mkdir -p "$GSB"
+cat > "$GSB/gum" <<'SH'
+#!/bin/sh
+# stub gum for the grouped menus: every call is appended to $GUMCALLS (CALL, then its arguments), the answer is the first line of the queue $GUMQ
+# (an ERE; all item arguments that match are printed), and the line is consumed
+printf 'CALL\n' >> "$GUMCALLS"; printf '%s\n' "$@" >> "$GUMCALLS"
+pat=$(head -1 "$GUMQ"); sed -i 1d "$GUMQ"
+[ -n "$pat" ] || exit 0
+for a in "$@"; do case "$a" in -*|▸*|◉*|○*) continue ;; esac; if printf '%s' "$a" | grep -Eq "$pat"; then printf '%s\n' "$a"; fi; done
+exit 0
+SH
+chmod +x "$GSB/gum"
+printf 'solo|file:///nonexistent|root|Solo\ncol|file:///nonexistent|script|standard blue red\nmulti|file:///nonexistent|top|Multi Multi-Dark\n' > "$T/fam.conf"
+FD="$T/fam-icons"
+fam_reset() { rm -rf "$FD"; mkdir -p "$FD"; local f; for f in Solo Col Col-dark Col-light Col-blue Col-blue-dark Multi Multi-Dark; do mkdir -p "$FD/$f"; : > "$FD/$f/.candy-for-gnome"; done; : > "$GC"; : > "$LOG"; }
+famrun() {   # famrun ANSWER... -- ARGS: queue the answers, run themectl icons ARGS with the stub gum forced
+    local a; : > "$GQ"; while [ "$1" != -- ]; do printf '%s\n' "$1" >> "$GQ"; shift; done; shift
+    GUMQ="$GQ" GUMCALLS="$GC" THEMES_PICKER=gum PATH="$GSB:$PATH" ICON_SOURCES="$T/fam.conf" ICONS_DEST="$FD" tools/themectl.sh icons "$@" </dev/null 2>&1
+}
+calls_n() { grep -c '^CALL$' "$GC"; }
+fam_reset; famrun '^Col' '^blue' '^dark' -- switch >/dev/null
+grep -q "icon-theme Col-blue-dark" "$LOG" && [ "$(calls_n)" -eq 3 ] && chk ok "switch-icon: family, then colour, then style picks the style folder (Col-blue-dark)" || chk fail "switch families: $(tr '\n' ';' < "$LOG") calls $(calls_n)"
+c1=$(awk '/^CALL$/ {n++} n==1' "$GC" | grep -v '^CALL$' | grep -E '^(Adwaita|Solo|Col|Multi)' | sed 's/  (current)$//' | tr '\n' '|')
+[ "$c1" = "Adwaita (GNOME default)|Solo|Col|Multi|" ] && chk ok "the family picker lists Adwaita (GNOME default) first, then only families with an installed set" || chk fail "family list: $c1"
+c2=$(awk '/^CALL$/ {n++} n==2' "$GC" | grep -v '^CALL$' | grep -E '^(default|blue|red)' | tr '\n' '|'); c3=$(awk '/^CALL$/ {n++} n==3' "$GC" | grep -v '^CALL$' | grep -E '^(standard|dark|light)' | tr '\n' '|')
+[ "$c2" = "default|blue|" ] && [ "$c3" = "standard|dark|" ] && chk ok "the colour picker lists only installed colours (default first), the style picker only installed styles" || chk fail "colour/style lists: $c2 / $c3"
+! awk '/^CALL$/ {n++} n>=1' "$GC" | grep -qE '(✅|🎨|🔄|❗|🧹|❌|🟡|🔁)' && chk ok "no emoji inside the pickers" || chk fail "emoji in a picker"
+fam_reset; famrun '^Solo' -- switch >/dev/null
+grep -q "icon-theme Solo" "$LOG" && [ "$(calls_n)" -eq 1 ] && chk ok "a family with one installed set switches without a second menu" || chk fail "solo family: calls $(calls_n)"
+fam_reset; famrun '^Multi' '^Multi-Dark' -- switch >/dev/null
+grep -q "icon-theme Multi-Dark" "$LOG" && [ "$(calls_n)" -eq 2 ] && chk ok "a family of plain sets lists its installed sets as the second step" || chk fail "multi family: $(tr '\n' ';' < "$LOG") calls $(calls_n)"
+fam_reset; famrun '^Adwaita' -- switch >/dev/null
+grep -q "icon-theme Adwaita" "$LOG" && [ "$(calls_n)" -eq 1 ] && chk ok "Adwaita (GNOME default) in the family picker switches at once" || chk fail "adwaita in family picker"
+fam_reset; : > "$GQ"; out=$(famrun -- switch Col-blue-dark); grep -q "icon-theme Col-blue-dark" "$LOG" && [ "$(calls_n)" -eq 0 ] && chk ok "switch-icon <style folder name> switches directly and skips every menu" || chk fail "direct style name: $out"
+fam_reset; famrun -- switch Col-dark >/dev/null; grep -q "icon-theme Col-dark" "$LOG" && chk ok "switch-icon <set>-dark works when the three folders of a script set exist (the Tela-dark case)" || chk fail "Col-dark direct"
+fam_reset; famrun -- switch Col-light >/dev/null; grep -q "icon-theme Col-light" "$LOG" && chk ok "switch-icon <set>-light works as a direct name" || chk fail "Col-light direct"
+fam_reset; out=$(famrun -- switch Nosuch); printf '%s' "$out" | grep -q "is not an icon set here" && chk ok "the error says 'an icon set' (and 'a theme' for themes)" || chk fail "article: $out"
+fam_reset; famrun -- switch Multi-Dark >/dev/null; grep -q "icon-theme Multi-Dark" "$LOG" && [ "$(calls_n)" -eq 0 ] && chk ok "switch-icon <set name> skips the menus" || chk fail "direct set name"
+out=$(famrun -- switch Col-red); printf '%s' "$out" | grep -q "not installed" && chk ok "a colour that is not installed is refused as before" || chk fail "uninstalled colour: $out"
+fam_reset; out=$(printf '2\n' | ICON_SOURCES="$T/fam.conf" ICONS_DEST="$FD" just switch-icon 2>&1)
+grep -q "icon-theme Solo" "$LOG" && printf '%s' "$out" | grep -q "1) Adwaita (GNOME default)" && printf '%s' "$out" | grep -q "Col-blue" && chk ok "without a terminal the flat numbered list is unchanged (every installed set, Adwaita first)" || chk fail "numbered list: $out"
+fam_reset; famrun '(Col|Multi)$' '(default|blue|red)$' 'Multi$' -- install >/dev/null; cat "$GC" > "$T/fam-install.calls"
+c1=$(awk '/^CALL$/ {n++} n==1' "$GC" | grep -v '^CALL$' | grep -E '^(✓ )?(Solo|Col|Multi)$' | tr '\n' '|'); c2=$(awk '/^CALL$/ {n++} n==2' "$GC" | grep -v '^CALL$' | grep -E '^(✓ )?(default|blue|red)$' | tr '\n' '|'); c3=$(awk '/^CALL$/ {n++} n==3' "$GC" | grep -v '^CALL$' | grep -E '^(✓ )?Multi(-Dark)?$' | tr '\n' '|')
+[ "$c1" = "✓ Solo|✓ Col|✓ Multi|" ] && [ "$c2" = "✓ default|✓ blue|red|" ] && [ "$c3" = "✓ Multi|✓ Multi-Dark|" ] && [ "$(calls_n)" -eq 3 ] && chk ok "install-icon: families first, then the colours (no style rows) and the sets of each ticked family, installed ones marked" || chk fail "install lists: $c1 / $c2 / $c3 ($(calls_n))"
+fam_reset; rm -rf "$FD"/Solo; famrun '^Solo$' -- install | grep -q "Skipping Solo" && [ "$(calls_n)" -eq 1 ] && chk ok "install-icon: a one-set family installs from the first step alone" || chk fail "solo install"
+fam_reset; famrun '^(Col|Solo)( |$)' '^blue' -- remove >/dev/null
+[ ! -e "$FD/Solo" ] && [ ! -e "$FD/Col-blue" ] && [ ! -e "$FD/Col-blue-dark" ] && [ -d "$FD/Col" ] && [ -d "$FD/Col-dark" ] && [ -d "$FD/Multi" ] && [ "$(calls_n)" -eq 2 ] && chk ok "remove-icon: families, then the installed colours of a ticked family; only the ticked ones go" || chk fail "remove grouped: $(ls "$FD" | tr '\n' ' ') calls $(calls_n)"
+fam_reset; famrun -- remove Col-blue >/dev/null; [ ! -e "$FD/Col-blue" ] && [ -d "$FD/Col" ] && [ "$(calls_n)" -eq 0 ] && chk ok "remove-icon <name> skips the menus" || chk fail "direct remove"
+rm -rf "$FD"
+
 # ---- message emojis (terminal only; CANDY_FORCE_EMOJI exists for this test) ------------------------------------------------------------------
 echo "=== message emojis"
 EMO=(✅ 🎨 🔄 ❗ 🧹 ❌ 🟡 🔁)
@@ -1014,8 +1112,8 @@ done
 printf '%s\n' "$force_out" | grep -E '^(✅|🎨|🔄|❗|🧹|❌|🟡|🔁) ' | grep -q 'Shell theme is now' && chk ok "forced: the Shell theme line carries 🎨" || chk fail "forced: Shell theme line"
 printf '%s\n' "$force_out" | grep -E '^ ' | grep -qE '(✅|🎨|🔄|❗|🧹|❌|🟡|🔁)' && chk fail "an indented continuation line carries an emoji" || chk ok "indented and data lines carry no emoji"
 off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 CANDY_PLAIN=1 TERM=xterm-256color); has_emoji "$off" && chk fail "CANDY_PLAIN=1 did not switch emojis off" || chk ok "CANDY_PLAIN=1 switches emojis off (even when forced)"
-off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI=1 TERM=xterm-256color); has_emoji "$off" && chk fail "NO_EMOJI=1 did not switch emojis off" || chk ok "NO_EMOJI switches emojis off"
-off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI= TERM=xterm-256color); has_emoji "$off" && chk fail "an empty NO_EMOJI did not switch emojis off" || chk ok "NO_EMOJI set to an empty value still switches emojis off"
+off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI=1 TERM=xterm-256color); has_emoji "$off" && chk fail "NO_EMOJI=1 did not switch emojis off" || chk ok "a non-empty NO_EMOJI switches emojis off"
+off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI= TERM=xterm-256color); has_emoji "$off" && chk ok "an empty NO_EMOJI keeps the emojis (non-empty only, as NO_COLOR)" || chk fail "an empty NO_EMOJI switched emojis off"
 off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 TERM=dumb); has_emoji "$off" && chk fail "TERM=dumb did not switch emojis off" || chk ok "TERM=dumb switches emojis off"
 # a real pseudo-terminal: stdout is a terminal, so no force is needed; stderr lines are tested on their own stream
 rm -rf "$EM" "$XDG_CONFIG_HOME/gtk-4.0"; mkdir -p "$XDG_CONFIG_HOME/gtk-4.0"

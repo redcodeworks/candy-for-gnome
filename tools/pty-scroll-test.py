@@ -87,7 +87,7 @@ class Picker:
 def names_in_order():
     env = dict(os.environ)
     out = subprocess.run(['tools/themectl.sh', 'themes', 'list'], cwd=ROOT, capture_output=True, text=True, env=env).stdout
-    lines = [re.sub(r'^[✓ ]*\s*(★\s*)?', '', l) for l in out.splitlines() if l.strip()]
+    lines = [re.sub(r'^[✓ ]*\s*(★\s*)?', '', l) for l in out.splitlines() if l.strip() and 'Adwaita (GNOME default)' not in l]   # the list has the Adwaita entry first; the install checklist does not
     return [l.split()[0] for l in lines], [l.lower() for l in lines]
 
 fails = 0

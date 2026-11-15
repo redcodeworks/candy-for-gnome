@@ -48,14 +48,14 @@
 # Message emojis, the one place (also covers tools/apps.sh, which is sourced): a function named echo wraps the builtin. With ONE argument that
 # starts with a known message prefix it puts one emoji and a space in front, but only when the stream the line goes to (fd 1 here, so
 # `>&2` lines test stderr, and captured output, files and pipes are never a terminal) is a terminal, TERM is not dumb or empty, and neither
-# CANDY_PLAIN (non-empty, not 0) nor NO_EMOJI (set, any value) says no. The text after the emoji is never changed, so data lines (no match)
+# CANDY_PLAIN (non-empty, not 0) nor NO_EMOJI (non-empty, as for NO_COLOR) says no. The text after the emoji is never changed, so data lines (no match)
 # stay as they are. CANDY_FORCE_EMOJI=1 skips the terminal test and exists only for tools/test.sh.
 echo() {
-    if [ "$#" -ne 1 ] || { [ ! -t 1 ] && [ "${CANDY_FORCE_EMOJI:-}" != 1 ]; } || [ -n "${NO_EMOJI+x}" ] \
+    if [ "$#" -ne 1 ] || { [ ! -t 1 ] && [ "${CANDY_FORCE_EMOJI:-}" != 1 ]; } || [ -n "${NO_EMOJI:-}" ] \
        || { [ -n "${CANDY_PLAIN:-}" ] && [ "$CANDY_PLAIN" != 0 ]; } || [ -z "${TERM:-}" ] || [ "$TERM" = dumb ]; then builtin echo "$@"; return; fi
     local e=""
     case "$1" in
-        Refused:\ *|Could\ not\ *|install.sh\ failed*|install.sh\ did\ not*|No\ accent\ map*|usage:\ *|*\ is\ not\ a\ theme\ here*|*\ is\ not\ a\ icon\ set\ here*|*\ is\ not\ an\ accent\ of\ *) e=❌ ;;
+        Refused:\ *|Could\ not\ *|install.sh\ failed*|install.sh\ did\ not*|No\ accent\ map*|usage:\ *|*\ is\ not\ a\ theme\ here*|*\ is\ not\ an\ icon\ set\ here*|*\ is\ not\ an\ accent\ of\ *) e=❌ ;;
         WARNING:\ *|warning:\ *|Note:\ *|*\ not\ applied*|Left\ *\ alone*|Not\ switching\ the\ *|Skipping\ *) e=🟡 ;;
         Installed\ *) e=✅ ;;
         Updated\ *|Replaced\ *|Edited\ *) e=🔄 ;;
@@ -82,6 +82,8 @@ candy-for-gnome: themes and icon sets (just <recipe>; behind the image: ujust gn
   remove-theme [name]            remove an installed theme (checklist without a name); folders candy-for-gnome did not install are not touched
   switch-theme [name] [accent]   make a theme the GTK, Shell and libadwaita theme and select the matching Ptyxis palette, Text Editor
                                  style, (when ~/.config/ghostty exists) the Ghostty theme and the themes of installed Alacritty, Helix, Yazi, kitty, bat, eza, zellij and Claude Code (tools/apps.sh); the accent is one of the theme's own colors (asked when omitted)
+                                 `switch-theme Adwaita` (first entry of the list) hands everything back to the GNOME and tool defaults and is undone by
+                                 switching to a scheme again; `switch-icon Adwaita` sets the GNOME default icon theme
   install-icon [name]            install an icon set from its source repo (cloned into ~/.cache/candy-for-gnome) into ~/.local/share/icons
   update-icon, remove-icon [name], switch-icon [name]   as for themes
 
@@ -361,7 +363,12 @@ may_touch() {
     return 1
 }
 mark_dir() { printf '%s\n' "$2" > "$1/$marker"; }
-is_installed() { local f; while read -r f; do [ -e "$dest/$f" ] && is_ours "$dest/$f" "$(src_index "$1" "$f")" && return 0; done < <(folders_of "$1"); return 1; }
+adw_label="Adwaita (GNOME default)"; items_adw=0
+add_adwaita() {   # switch and list only: the GNOME default as the first entry (nothing is installed or removed for it; it is the system's own)
+    items=(Adwaita "${items[@]}"); labels=("$adw_label" "${labels[@]}"); items_adw=1
+}
+is_adwaita() { [ "${items_adw:-0}" = 1 ] && [ "$1" = Adwaita ]; }
+is_installed() { is_adwaita "$1" && return 0; local f; while read -r f; do [ -e "$dest/$f" ] && is_ours "$dest/$f" "$(src_index "$1" "$f")" && return 0; done < <(folders_of "$1"); return 1; }
 index_of() { local i; for i in "${!items[@]}"; do [ "${items[i]}" = "$1" ] && { echo "$i"; return 0; }; done; return 1; }
 
 # ---- prompts -------------------------------------------------------------------------------------
@@ -525,8 +532,9 @@ gum_run() {
     # featured entries (starred) first, then the rest; NO heading or divider rows: gum cannot make a row unselectable, and every row must be a real choice
     if [ "${pick_keep_order:-0}" = 1 ]; then for i in "${cand[@]}"; do items+=("${labels[i]}"); done   # the caller ordered the list (just-installed first)
     else
+        for i in "${cand[@]}"; do [ "${items_adw:-}" = 1 ] && [ "${labels[i]}" = "$adw_label" ] && items+=("${labels[i]}"); done   # the Adwaita entry stays first
         for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] && items+=("${labels[i]}"); done
-        for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] || items+=("${labels[i]}"); done
+        for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] || { [ "${items_adw:-}" = 1 ] && [ "${labels[i]}" = "$adw_label" ]; } || items+=("${labels[i]}"); done
     fi
     for i in "${cand[@]}"; do idx_of[${labels[i]}]=$i; [ "$mode" = many ] && [ "${on[i]:-0}" -eq 1 ] && sel+="${sel:+,}${labels[i]}"; done
     sz=$(stty size </dev/tty 2>/dev/null) && rows=${sz% *}
@@ -822,6 +830,14 @@ gh_switch() {    # point Ghostty at the scheme: link the pair file, ask once abo
     fi
     echo "Ghostty has no auto-reload: press ctrl+shift+, (reload_config) in open Ghostty windows."
 }
+gh_adwaita() {   # switch-theme Adwaita: retarget the managed include link to the neutral pair file (the user's config is never touched, nothing is created when there is no managed link)
+    gh_present && gh_link_ours || return 0
+    local src dst
+    while IFS='|' read -r src dst; do pty_may_touch adwaita Replace "$dst" || return 0; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; done < <(gh_targets adwaita)
+    ln -sfn "$gh_data/adwaita.conf" "$gh_link"
+    echo "Ghostty is now neutral (its include link points at an empty config, so Ghostty uses its own theme; $gh_link)."
+    echo "Ghostty has no auto-reload: press ctrl+shift+, (reload_config) in open Ghostty windows."
+}
 gh_status() {    # a line for list-themes, only when the Ghostty config directory exists
     gh_present || return 0
     local t="none" conf; gh_link_ours && t=$(basename "$(readlink "$gh_link")" .conf); conf=$(gh_conf_file)
@@ -938,14 +954,203 @@ current_value() {  # the value the desktop currently uses (theme or icon set)
     else gsettings get org.gnome.desktop.interface icon-theme 2>/dev/null | tr -d "'" || true; fi
 }
 # resolve $want to an index, or explain
-resolve() { index_of "$want" || { echo "'$want' is not a $noun here. Available: ${items[*]}" >&2; exit 1; }; }
+resolve() { local art=a; [ "$kind" = icons ] && art=an; index_of "$want" || { echo "'$want' is not $art $noun here. Available: ${items[*]}" >&2; exit 1; }; }
+
+set_ini() {  # set_ini KEY VALUE: rewrite the key in the GTK settings.ini files that already have it
+    local f; for f in "$cfg/gtk-3.0/settings.ini" "$cfg/gtk-4.0/settings.ini"; do
+        if [ -f "$f" ] && grep -q "^$1=" "$f"; then sed -i "s|^$1=.*|$1=$2|" "$f"; fi
+    done
+}
+
+# ---- grouped icon menus (a terminal only; named sets, pipes and the numbered fallback keep the flat lists) --------------------------------------
+# icons_grouped: the family -> colour -> style pickers are used when a picker can really run (gum, or the built-in one on a terminal).
+# Families are the registry's sources, colours are the items of a script source (the registry's variants), styles are the folders of one colour
+# (standard, -dark, -light); a family with one installed set, a colour with one installed folder skip their step. Nothing here changes what is
+# installed, copied or switched: the steps only narrow down to the same items and folder names the flat lists use.
+icons_grouped() { [ "$kind" = icons ] && { [ "$(pick_handler)" = gum ] || { [ -t 0 ] && [ -t 2 ] && [ -r /dev/tty ]; }; }; }
+fam_name() { local w out=""; for w in ${1//-/ }; do out="$out ${w^}"; done; echo "${out# }"; }   # display name of a source key: gruvbox-plus -> Gruvbox Plus
+fam_script() { case "${src_layout[$1]:-}" in script|script-t) return 0 ;; *) return 1 ;; esac; }
+fam_members() {   # fam_members FAMILY [installed]: fam_idx = item indexes of the family (registry order), only the installed ones with "installed"
+    fam_idx=(); local j
+    for j in "${!items[@]}"; do
+        [ "${i_src[${items[j]}]:-}" = "$1" ] || continue
+        if [ "${2:-}" = installed ]; then is_installed "${items[j]}" || continue; fi
+        fam_idx+=("$j")
+    done
+}
+colour_label() { if [ "${i_var[$1]:-}" = standard ]; then echo "default"; else echo "${i_var[$1]:-$1}"; fi; }   # colour name of item $1 (the plain default is "default")
+has_folder() { local f; while read -r f; do [ "$f" = "$2" ] && return 0; done < <(folders_of "$1"); return 1; }   # has_folder ITEM FOLDER
+installed_folders() { local f; while read -r f; do if [ -e "$dest/$f" ]; then echo "$f"; fi; done < <(folders_of "$1"); }
+style_label() { case "$2" in "$1") echo standard ;; "$1-dark") echo dark ;; "$1-light") echo light ;; *) echo "$2" ;; esac; }   # style_label ITEM FOLDER
+pick_label() {   # pick_label HEADER CURSOR_INDEX LABEL...: one choice among plain labels (the pickers index into labels[]), pick_idx = index or empty when cancelled
+    local header="$1" cur="$2"; shift 2
+    local savedl=("${labels[@]}") ls=("$@") idx=() i
+    labels=("${ls[@]}"); for i in "${!ls[@]}"; do idx+=("$i"); done
+    tui_cur=$cur; pick_keep_order=1; choose_one "$header" "${idx[@]}"; pick_keep_order=0; tui_cur=0
+    pick_idx="${pick:-}"; labels=("${savedl[@]}")
+}
+pick_many_label() {   # pick_many_label HEADER: checklist over pm_labels[] with pm_on[] ticks; pm_chosen = the ticked indexes
+    local header="$1" savedl=("${labels[@]}") saved_on=() i k idx=()
+    for k in "${!on[@]}"; do saved_on[k]="${on[k]}"; done
+    labels=("${pm_labels[@]}"); on=(); for i in "${!pm_labels[@]}"; do on[i]="${pm_on[i]:-0}"; idx+=("$i"); done
+    choose_many "$header" "${idx[@]}"
+    pm_chosen=("${chosen[@]}")
+    labels=("${savedl[@]}"); on=(); for k in "${!saved_on[@]}"; do on[k]="${saved_on[k]}"; done
+}
+icons_pick_switch() {   # family, then colour, then style: sets i (item index) and sw_target (the folder to switch to)
+    local cur n j f lab fk fkeys=(Adwaita) flabels=("$adw_label") curf=0 ls=() ci=0 c k sf=()
+    cur=$(current_value)
+    if [ "$cur" = Adwaita ]; then flabels[0]="$adw_label  (current)"; fi
+    for n in "${src_names[@]}"; do
+        fam_members "$n" installed; [ "${#fam_idx[@]}" -gt 0 ] || continue
+        lab=$(fam_name "$n")
+        for j in "${fam_idx[@]}"; do if has_folder "${items[j]}" "$cur"; then lab="$lab  (current)"; curf=${#fkeys[@]}; fi; done
+        fkeys+=("$n"); flabels+=("$lab")
+    done
+    pick_label "Switch to which icon family?" "$curf" "${flabels[@]}"
+    [ -n "$pick_idx" ] || { echo "Cancelled."; exit 0; }
+    fk="${fkeys[pick_idx]}"
+    if [ "$fk" = Adwaita ]; then i=$(index_of Adwaita); sw_target=Adwaita; return 0; fi
+    fam_members "$fk" installed; local mem=("${fam_idx[@]}")
+    if [ "${#mem[@]}" -gt 1 ]; then
+        ls=(); ci=0
+        for k in "${!mem[@]}"; do
+            j="${mem[k]}"; if fam_script "$fk"; then lab=$(colour_label "${items[j]}"); else lab="${items[j]}"; fi
+            if has_folder "${items[j]}" "$cur"; then lab="$lab  (current)"; ci=$k; fi
+            ls+=("$lab")
+        done
+        if fam_script "$fk"; then c="$(fam_name "$fk") colour"; else c="$(fam_name "$fk") set"; fi
+        pick_label "Switch to which $c?" "$ci" "${ls[@]}"
+        [ -n "$pick_idx" ] || { echo "Cancelled."; exit 0; }
+        i="${mem[pick_idx]}"
+    else i="${mem[0]}"; fi
+    sw_target="${items[i]}"
+    if fam_script "$fk"; then
+        mapfile -t sf < <(installed_folders "${items[i]}")
+        if [ "${#sf[@]}" -gt 1 ]; then
+            ls=(); ci=0
+            for k in "${!sf[@]}"; do lab=$(style_label "${items[i]}" "${sf[k]}"); if [ "${sf[k]}" = "$cur" ]; then lab="$lab  (current)"; ci=$k; fi; ls+=("$lab"); done
+            pick_label "Switch to which style of $(fam_name "$fk") $(colour_label "${items[i]}")?" "$ci" "${ls[@]}"
+            [ -n "$pick_idx" ] || { echo "Cancelled."; exit 0; }
+            sw_target="${sf[pick_idx]}"
+        elif [ "${#sf[@]}" -eq 1 ]; then sw_target="${sf[0]}"; fi
+    fi
+}
+icon_folder_item() {   # icon_folder_item NAME: "<item index>|<folder>" when NAME is an installed style folder (Tela-dark, WhiteSur-nord-light) of an installed set
+    local j f
+    for j in "${!items[@]}"; do
+        is_adwaita "${items[j]}" && continue
+        is_installed "${items[j]}" || continue
+        while read -r f; do if [ "$f" = "$1" ] && [ -e "$dest/$f" ]; then echo "$j|$f"; return 0; fi; done < <(folders_of "${items[j]}")
+    done
+    return 1
+}
+icons_pick_many() {   # icons_pick_many install|remove: families first, then the colours or sets of each ticked family; sets chosen (item indexes)
+    local mode="$1" n lab ni any_inst=0 fkeys=() j k m fam_ticked=() c
+    pm_labels=(); pm_on=()
+    for j in "${!items[@]}"; do is_installed "${items[j]}" && any_inst=1; done
+    for n in "${src_names[@]}"; do
+        fam_members "$n"; [ "${#fam_idx[@]}" -gt 0 ] || continue
+        fam_members "$n" installed; ni=${#fam_idx[@]}
+        if [ "$mode" = remove ] && [ "$ni" -eq 0 ]; then continue; fi
+        lab=$(fam_name "$n"); if [ "$mode" = install ] && [ "$ni" -gt 0 ]; then lab="✓ $lab"; fi
+        fkeys+=("$n"); pm_labels+=("$lab")
+        if [ "$mode" = install ] && { [ "$ni" -gt 0 ] || { [ "$any_inst" -eq 0 ] && [ "$n" = papirus ]; }; }; then pm_on[${#pm_labels[@]}-1]=1; fi
+    done
+    [ "${#fkeys[@]}" -gt 0 ] || { chosen=(); return 0; }
+    if [ "$mode" = install ]; then pick_many_label "Icon families to install into $dest"; else pick_many_label "Icon families to remove from $dest"; fi
+    for k in "${pm_chosen[@]}"; do fam_ticked+=("${fkeys[k]}"); done
+    local out=()
+    for n in "${fam_ticked[@]}"; do
+        if [ "$mode" = remove ]; then fam_members "$n" installed; else fam_members "$n"; fi
+        local mem=("${fam_idx[@]}")
+        if [ "${#mem[@]}" -eq 1 ]; then out+=("${mem[0]}"); continue; fi
+        pm_labels=(); pm_on=(); any=0
+        for j in "${mem[@]}"; do is_installed "${items[j]}" && any=1; done
+        for k in "${!mem[@]}"; do
+            j="${mem[k]}"; if fam_script "$n"; then lab=$(colour_label "${items[j]}"); else lab="${items[j]}"; fi
+            if [ "$mode" = install ] && is_installed "${items[j]}"; then lab="✓ $lab"; pm_on[k]=1
+            elif [ "$mode" = install ] && [ "$any" -eq 0 ]; then
+                if fam_script "$n"; then [ "${i_var[${items[j]}]:-}" = standard ] && pm_on[k]=1
+                else case "${items[j]}" in Papirus|Papirus-Dark) pm_on[k]=1 ;; esac; fi
+            fi
+            pm_labels+=("$lab")
+        done
+        if fam_script "$n"; then c="colors"; else c="sets"; fi
+        if [ "$mode" = install ]; then pick_many_label "$(fam_name "$n") $c to install into $dest"; else pick_many_label "$(fam_name "$n") $c to remove from $dest"; fi
+        for k in "${pm_chosen[@]}"; do out+=("${mem[k]}"); done
+    done
+    chosen=("${out[@]}")
+}
+
+# ---- Adwaita (GNOME default): `switch-theme Adwaita` hands the look back to GNOME and the tools ---------------------------------------------
+# No file of a user is ever edited or deleted. GNOME keys are reset or set to the stock value; every MANAGED link (made by this installer) is
+# retargeted to a neutral file shipped in adwaita/ (installed like a scheme's files, marker `candy-for-gnome: adwaita`), exactly the way a switch
+# between schemes retargets it, so the user's config keeps pointing at the same link and `switch-theme <scheme>` points it back. Links that do
+# not exist are not created, and nothing is asked.
+adw_reset_dconf() {  # adw_reset_dconf KEY: reset a key through gsettings-independent dconf (the key paths of Ptyxis, Text Editor, Builder, User Themes)
+    command -v dconf >/dev/null 2>&1 && dconf reset "$1" 2>/dev/null
+}
+adw_shell() {
+    local done_=0
+    if gsettings list-schemas 2>/dev/null | grep -qx org.gnome.shell.extensions.user-theme; then gsettings reset org.gnome.shell.extensions.user-theme name && done_=1
+    elif adw_reset_dconf /org/gnome/shell/extensions/user-theme/name; then done_=1; fi
+    if [ "$done_" = 1 ]; then echo "Shell theme is now the GNOME default (the User Themes key was reset; reload it by logging out and in, or toggling the User Themes extension)."
+    else echo "Could not reset the Shell theme: neither gsettings nor dconf could write the User Themes key."; fi
+}
+adw_libadwaita() {   # remove the libadwaita file only when candy-for-gnome generated it; a backup of the user's own file (.bak) is put back, never lost
+    local t="$cfg/gtk-4.0/gtk.css"
+    [ -e "$t" ] || return 0
+    if ! grep -q "libadwaita-gen.py" "$t" 2>/dev/null; then echo "$t is not generated by candy-for-gnome; left alone."; return 0; fi
+    if [ -e "$t.bak" ]; then cp -L "$t.bak" "$t"; echo "Updated $t (your own file from $t.bak is back; the backup stays)."
+    else rm -f "$t"; echo "Removed $t (the libadwaita file candy-for-gnome had generated)."; fi
+}
+adw_ptyxis() {   # reset the palette key on the same profiles switch-theme sets (the default one and those with a key): the key's own default is Ptyxis's stock palette
+    local uuids def u sel=() n=0
+    command -v dconf >/dev/null 2>&1 || { echo "Ptyxis palette not changed: dconf not found."; return 0; }
+    uuids=$(dconf read /org/gnome/Ptyxis/profile-uuids 2>/dev/null | dq || true)
+    def=$(dconf read /org/gnome/Ptyxis/default-profile-uuid 2>/dev/null | dq | head -n1 || true)
+    [ -n "$def" ] || def=$(printf '%s\n' "$uuids" | head -n1)
+    [ -n "$def" ] || { echo "Ptyxis palette not changed: no Ptyxis profile found."; return 0; }
+    sel=("$def")
+    for u in $uuids; do [ "$u" = "$def" ] && continue; [ -n "$(dconf read "/org/gnome/Ptyxis/Profiles/$u/palette" 2>/dev/null || true)" ] && sel+=("$u"); done
+    for u in "${sel[@]}"; do dconf reset "/org/gnome/Ptyxis/Profiles/$u/palette" && n=$((n+1)); done
+    echo "Ptyxis palette is now the Ptyxis default (the palette key was reset on $n profile(s); candy-for-gnome does not record the previous one)."
+}
+adw_gsv_flatpak() {  # adw_gsv_flatpak APP SCHEMA KEY LABEL: reset the key in the app's own sandbox store and report what it reads back
+    local app="$1" schema="$2" key="$3" label="$4" got
+    flatpak run --command=gsettings "$app" reset "$schema" "$key" </dev/null >/dev/null 2>&1 || true
+    got=$(flatpak run --command=gsettings "$app" get "$schema" "$key" </dev/null 2>/dev/null | tr -d "'") || got=""
+    echo "$label (Flatpak) style scheme is now the stock default (${got:-unknown})."
+}
+adw_gsv() {   # Text Editor and Builder: reset the style-scheme key (the stock default, not a named scheme); the installed style files stay
+    if gsv_flatpak org.gnome.TextEditor; then adw_gsv_flatpak org.gnome.TextEditor org.gnome.TextEditor style-scheme "Text Editor"; fi
+    if ! gsv_flatpak org.gnome.TextEditor || gsettings list-schemas 2>/dev/null | grep -qx org.gnome.TextEditor; then
+        if adw_reset_dconf /org/gnome/TextEditor/style-scheme; then echo "Text Editor style scheme is now the stock default (the key was reset)."; fi
+    fi
+    if gsv_flatpak org.gnome.Builder; then adw_gsv_flatpak org.gnome.Builder org.gnome.builder.editor style-scheme-name "Builder"; fi
+    if gsettings list-schemas 2>/dev/null | grep -qx org.gnome.builder.editor; then
+        if adw_reset_dconf /org/gnome/builder/editor/style-scheme-name; then echo "Builder style scheme is now the stock default (the key was reset)."; fi
+    fi
+    return 0
+}
+adwaita_theme_switch() {
+    gsettings set org.gnome.desktop.interface gtk-theme Adwaita; set_ini gtk-theme-name Adwaita
+    echo "GTK theme is now Adwaita (the GNOME default; your light/dark preference is unchanged)."
+    adw_shell
+    adw_libadwaita
+    pty_cleanup; adw_ptyxis; adw_gsv
+    gh_adwaita; app_adwaita
+    echo "Restart GTK apps to pick up the new theme."
+}
 
 case "$action" in
     list)
-        load_items
+        load_items; add_adwaita
         for i in "${!items[@]}"; do
-            ac=""; if [ "$kind" = themes ]; then ac="  [accent: $(current_accent "${items[i]}")]"; fi
-            if is_installed "${items[i]}"; then echo "✓ ${labels[i]}$ac"; else echo "  ${labels[i]}"; fi
+            ac=""; if [ "$kind" = themes ] && ! is_adwaita "${items[i]}"; then ac="  [accent: $(current_accent "${items[i]}")]"; fi
+            if is_adwaita "${items[i]}"; then if [ "$(current_value)" = Adwaita ]; then echo "✓ ${labels[i]}"; else echo "  ${labels[i]}"; fi
+            elif is_installed "${items[i]}"; then echo "✓ ${labels[i]}$ac"; else echo "  ${labels[i]}"; fi
         done
         if [ "$kind" = themes ]; then gh_status; apps_status; fi ;;
 
@@ -962,8 +1167,11 @@ case "$action" in
                 any=0; for i in "${!items[@]}"; do if is_installed "${items[i]}"; then on[i]=1; any=1; fi; done
                 if [ "$any" -eq 0 ]; then for i in "${!items[@]}"; do case "${items[i]}" in Papirus|Papirus-Dark) on[i]=1 ;; esac; done; fi
             fi
-            if [ "$kind" = icons ]; then for i in "${!items[@]}"; do if [ "${on[i]}" -eq 1 ] && is_installed "${items[i]}"; then labels[i]="✓ ${labels[i]}"; fi; done; fi
-            choose_many "${noun^}s to install into $dest" "${!items[@]}"
+            if [ "$kind" = icons ] && icons_grouped; then icons_pick_many install
+            else
+                if [ "$kind" = icons ]; then for i in "${!items[@]}"; do if [ "${on[i]}" -eq 1 ] && is_installed "${items[i]}"; then labels[i]="✓ ${labels[i]}"; fi; done; fi
+                choose_many "${noun^}s to install into $dest" "${!items[@]}"
+            fi
         fi
         [ "${#chosen[@]}" -gt 0 ] || { nothing_selected; exit 0; }
         names=(); for i in "${chosen[@]}"; do names+=("${items[i]}"); done
@@ -989,6 +1197,7 @@ case "$action" in
             if [ "$kind" = icons ]; then copy_item "$nm"; n=$((n+1))
             else while read -r f; do if [ -e "$dest/$f" ] && copy_folder "$f" "$nm"; then n=$((n+1)); fi; done < <(folders_of "$nm"); pty_cleanup; gsv_refresh "$nm"; gh_refresh "$nm"; app_refresh "$nm"; fi
         done
+        if [ "$kind" = themes ]; then gh_refresh adwaita; app_refresh adwaita; fi   # the neutral files of switch-theme Adwaita, only where they exist and are ours
         [ "$n" -gt 0 ] || echo "None of the ${noun}s from this source is installed in $dest." ;;
 
     remove)
@@ -1000,7 +1209,7 @@ case "$action" in
             chosen=("$i")
         else
             for i in "${!items[@]}"; do on[i]=0; done
-            choose_many "${noun^}s to remove from $dest" "${inst[@]}"
+            if icons_grouped; then icons_pick_many remove; else choose_many "${noun^}s to remove from $dest" "${inst[@]}"; fi
         fi
         [ "${#chosen[@]}" -gt 0 ] || { nothing_selected; exit 0; }
         cur=$(current_value); bases=""
@@ -1026,14 +1235,22 @@ case "$action" in
         fp_undo ;;
 
     switch)
-        load_items; inst=()
+        load_items; add_adwaita; inst=()
+        case "${want,,}" in adwaita) want=Adwaita ;; esac
         for i in "${!items[@]}"; do if is_installed "${items[i]}"; then inst+=("$i"); fi; done
         [ "${#inst[@]}" -gt 0 ] || { echo "No ${noun}s from this source are installed; install one first."; exit 1; }
+        sw_target=""
         if [ -n "$want" ]; then
-            i=$(resolve); is_installed "${items[i]}" || { echo "'$want' is not installed; install it first."; exit 1; }
+            if [ "$kind" = icons ] && ! index_of "$want" >/dev/null && fi_=$(icon_folder_item "$want"); then i="${fi_%%|*}"; sw_target="${fi_#*|}"
+            else i=$(resolve); is_installed "${items[i]}" || { echo "'$want' is not installed; install it first."; exit 1; }; fi
+        elif icons_grouped; then icons_pick_switch
         else
             choose_one "Switch to which $noun?" "${inst[@]}"; i="$pick"
             [ -n "$i" ] || { echo "Cancelled."; exit 0; }
+        fi
+        [ -n "$sw_target" ] || sw_target="${items[i]}"
+        if [ "$kind" = themes ] && is_adwaita "${items[i]}"; then
+            adwaita_theme_switch; exit 0
         fi
         if [ "$kind" = themes ]; then
             # accent: argument, else the submenu; copy the scheme's folders afresh (clean) and re-apply it
@@ -1046,15 +1263,11 @@ case "$action" in
             copy_item "${items[i]}"; pty_cleanup; gsv_install "${items[i]}"; gh_install "${items[i]}"; app_install "${items[i]}"
             [ -z "$accent_pick" ] || echo "Accent: $accent_pick."
         fi
-        set_ini() {  # set_ini KEY VALUE: rewrite the key in the GTK settings.ini files that already have it
-            local f; for f in "$cfg/gtk-3.0/settings.ini" "$cfg/gtk-4.0/settings.ini"; do
-                if [ -f "$f" ] && grep -q "^$1=" "$f"; then sed -i "s|^$1=.*|$1=$2|" "$f"; fi
-            done
-        }
         if [ "$kind" = icons ]; then
-            gsettings set org.gnome.desktop.interface icon-theme "${items[i]}"
-            set_ini gtk-icon-theme-name "${items[i]}"
-            echo "Icon theme is now ${items[i]}."
+            gsettings set org.gnome.desktop.interface icon-theme "$sw_target"
+            set_ini gtk-icon-theme-name "$sw_target"
+            if is_adwaita "${items[i]}"; then echo "Icon theme is now Adwaita (the GNOME default; no icon folder was installed or removed)."
+            else echo "Icon theme is now $sw_target."; fi
         else
             sc="${items[i]}"; gtk=""; shell_d=""; shell_l=""
             while read -r f; do
