@@ -280,14 +280,14 @@ themes {
             magenta 148 94 128
             cyan 76 122 93
             white 101 71 53
-            bright_black 242 229 188
-            bright_red 193 74 74
-            bright_green 108 120 46
-            bright_yellow 180 113 9
-            bright_blue 69 112 122
-            bright_magenta 148 94 128
-            bright_cyan 76 122 93
-            bright_white 101 71 53
+            bright_black 180 162 135
+            bright_red 180 88 88
+            bright_green 102 111 55
+            bright_yellow 170 111 20
+            bright_blue 80 106 112
+            bright_magenta 135 108 125
+            bright_cyan 87 111 96
+            bright_white 84 59 44
         }
     }
 }

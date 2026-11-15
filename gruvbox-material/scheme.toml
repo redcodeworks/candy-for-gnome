@@ -92,4 +92,14 @@ bright_white = "#d5c8b0"   # Color15 (built-in #d4be98)
 no_builtin = "no Ptyxis built-in has a light Gruvbox Material (the built-in of that name is dark only); the values stay as before"
 foreground = "#654735"   # reference (a softer ink than the role fg #4f3829)
 background = "#f5edca"   # reference: the window colour
-bright_black = "#f2e5bc" # reference: equals Color0
+# Brights 8-15 of the LIGHT variant (Kevin, 2026-11-15, "prototype B"): Dracula-light's rule, lightness about unchanged and saturation about 0.11 lower (a softer, greyer
+# bright); bright black a muted grey-brown (the background/foreground mix at 45 percent foreground), bright white a touch darker. Dark variants use the opposite
+# direction (lighter); this is the decision for Gruvbox Material only. The variant has no built-in, so there is nothing to compare these with.
+bright_black = "#b4a287"    # Color8  (was #f2e5bc = Color0)
+bright_red = "#b45858"      # Color9  (was #c14a4a)
+bright_green = "#666f37"    # Color10 (was #6c782e)
+bright_yellow = "#aa6f14"   # Color11 (was #b47109)
+bright_blue = "#506a70"     # Color12 (was #45707a)
+bright_magenta = "#876c7d"  # Color13 (was #945e80)
+bright_cyan = "#576f60"     # Color14 (was #4c7a5d)
+bright_white = "#543b2c"    # Color15 (was #654735)
