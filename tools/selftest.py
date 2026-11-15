@@ -42,6 +42,27 @@ def contrast():
         for n, (col, fg) in ((n, (t['color'], t['fg'])) for n, t in M['accents'][v].items()):
             r = cr(fg, col); print('   accent %-8s %s on %s %5.2f %s' % (n, fg, col, r, '' if r >= 4.5 else '  < 4.5 (best available)'))
 
+def toolbar_icons():
+    """GTK3 colours symbolic icons with the widget's `color`, so the colour of a toolbar `button` is the colour of its icon: enabled (normal, hover)
+    must read clearly on the toolbar background, the disabled one must be dimmer than the normal one. Only the CSS side is checked: an icon that
+    is not symbolic (an app asking for `media-playback-start`, not `...-symbolic`, on a set that ships a fixed-fill file for it) is drawn as the
+    file is and no theme CSS reaches it."""
+    H = r'(#[0-9a-fA-F]{6})'
+    def pick(css, sel):
+        m = re.search(r'(?m)^(?:[^{\n]*, )?' + re.escape(sel) + r' \{[^}]*?(?<![-\w])color: ' + H, css)
+        return m.group(1) if m else None
+    files = sorted(glob.glob(D + '/themes/*/gtk-3.0/gtk*.css'))
+    ok(bool(files), 'toolbar icons: the generated GTK3 stylesheets exist')
+    for f in files:
+        css = open(f).read(); rel = f[len(D) + 1:]
+        m = re.search(r'(?m)^[^{\n]*, toolbar \{[^}]*?background-color: ' + H, css)
+        bg, nrm, hov, dis = (m.group(1) if m else None), pick(css, 'button'), pick(css, 'button:hover'), pick(css, 'button:disabled')
+        if not (bg and nrm and hov and dis): ok(False, 'toolbar icons %s: toolbar background and button colours found' % rel); continue
+        a, b, c = cr(nrm, bg), cr(hov, bg), cr(dis, bg)
+        print('   toolbar icons %-45s normal %5.2f hover %5.2f disabled %5.2f' % (rel, a, b, c))
+        ok(a >= 4.5 and b >= 4.5, 'toolbar icons %s: enabled (normal %.2f, hover %.2f) >= 4.5:1 on the toolbar' % (rel, a, b))
+        ok(c < a and c >= 1.5, 'toolbar icons %s: disabled (%.2f) is dimmer than normal (%.2f) and still visible (>= 1.5)' % (rel, c, a))
+
 # ---- sed maps, as themectl applies them ------------------------------------------------------------------------
 def variant_of(rel):
     if rel.endswith('gtk-dark.css') or '-Dark' in rel: return 'dark'
@@ -245,7 +266,7 @@ def apps():
         low = [x for x in re.findall(r'foreground: "(#[0-9a-f]{6})"', ey) if cr(x, B) < 4.5 - 0.01]
         ok(all(cr(x, B) >= 3.0 for x in low) and set(low) <= {v.syn['comment']}, 'eza %s: every colour has 4.5:1 on the editor background (only the comment colour, 3:1, is lower)' % slot)
 
-if mode == 'contrast': contrast()
+if mode == 'contrast': contrast(); toolbar_icons()
 elif mode == 'ghostty': ghostty(); sys.exit(1 if FAIL else 0)
 elif mode == 'apps': apps(); sys.exit(1 if FAIL else 0)
 elif mode in ('gtk3', 'gtk4', 'shell'):
@@ -254,7 +275,7 @@ elif mode in ('gtk3', 'gtk4', 'shell'):
         mut = g.glob('/usr/lib64/mutter-*')[0]; os.environ['GI_TYPELIB_PATH'] = '/usr/lib64/gnome-shell:' + mut
     toolkit(mode); sys.exit(1 if FAIL else 0)
 else:
-    contrast(); ghostty(); apps(); rc = 0
+    contrast(); toolbar_icons(); ghostty(); apps(); rc = 0
     for k in ('gtk3', 'gtk4', 'shell'):
         env = dict(os.environ)
         if k == 'shell':
