@@ -90,6 +90,7 @@ generate theme="all":
         python3 -I tools/eza-gen.py "$s" >/dev/null
         python3 -I tools/zellij-gen.py "$s" >/dev/null
         python3 -I tools/claude-gen.py "$s" >/dev/null
+        python3 -I tools/palette-svg-gen.py "$s" >/dev/null
         rm -rf "$acc"
     done
 
