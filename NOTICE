@@ -49,6 +49,9 @@ Palettes
               palette (Tango ANSI colours, as shipped in the Ptyxis "Ubuntu" palette, generated from Gogh). Only hex values are used; no
               logos, fonts or artwork. "Ubuntu" and its logos are Canonical trademarks (https://ubuntu.com/legal/intellectual-property-policy),
               which is why the theme is called Aubergine. The licence of the Tango palette itself was not verified.
+  Citron      Own palette (a lime-yellow accent #EEFB87 on cool blue-grey neutrals), chosen for this project; no upstream source and no
+              licence to carry. No Ptyxis built-in matches it (no_builtin in both variants), so the terminals show the own values; the
+              orange role colours are invented (citron/scheme.toml says so).
   Terminal colours: every scheme takes bg_deep, fg, the six accents and the black, white and brights from the Ptyxis built-in palette of
   the same name (by id; Most carry a Ptyxis header saying they were generated from Gogh, https://github.com/Gogh-Co/Gogh, MIT; Tokyo Night Day says
   folke/tokyonight.nvim extras; the sectioned nord, dracula, solarized and Everforest carry no origin header); the terminal always shows that built-in. Where a built-in has no light variant (Gruvbox

@@ -15,8 +15,8 @@ import appthemes as A
 
 def text(scheme, v):
     t = v.term; L = A.header(scheme, 'kitty', v)
-    L += ['foreground %s' % t['Foreground'], 'background %s' % t['Background'], 'selection_foreground %s' % t['Foreground'], 'selection_background %s' % v.sel,
-          'cursor %s' % t['Cursor'], 'cursor_text_color %s' % t['Background'], 'url_color %s' % v.syn['blue'],
+    L += ['foreground %s' % t['Foreground'], 'background %s' % t['Background'], 'selection_foreground %s' % t['SelectionForeground'], 'selection_background %s' % t['SelectionBackground'],
+          'cursor %s' % t['Cursor'], 'cursor_text_color %s' % t['CursorText'], 'url_color %s' % v.syn['blue'],
           'active_border_color %s' % v.syn['blue'], 'inactive_border_color %s' % v.syn['comment'],
           'active_tab_foreground %s' % t['Background'], 'active_tab_background %s' % v.syn['blue'],
           'inactive_tab_foreground %s' % t['Foreground'], 'inactive_tab_background %s' % v.R['surface'].lower()]

@@ -27,6 +27,8 @@ EXISTING = {'Catppuccin Mocha': 'catppuccin', 'Catppuccin Latte': 'catppuccin', 
             'Fairy Floss Dark': 'fairy-floss', 'Gruvbox Material': 'gruvbox-material', 'Material': 'material', 'Monokai Dark': 'monokai',
             'nord': 'nordic', 'Rosé Pine': 'rose-pine', 'Rosé Pine Dawn': 'rose-pine', 'solarized': 'solarized',
             'Sweet Eliverlara': 'sweet', 'Tokyo Night': 'tokyo-night', 'Tokyo Night Day': 'tokyo-night', 'Ubuntu': 'aubergine'}
+# hand-made schemes with no Ptyxis built-in (scheme -> reason); `inventory` keeps their rows
+OWN = {'citron': 'own palette, no Ptyxis built-in (both variants no_builtin)'}
 # a flat dark + flat light built-in of one family become ONE scheme (name: dark id, light id)
 PAIRS = {'homebrew': ('Homebrew', 'Homebrew Light'), 'tomorrow': ('Tomorrow Night', 'Tomorrow')}
 # generic terminal presets and single-hue palettes: nothing to theme sensibly
@@ -78,6 +80,7 @@ def inventory():
             seen[r[0]] = r
         if r[0] in old and old[r[0]][3] in ('built', 'excluded') and r[3] == 'todo': r[3], r[4] = old[r[0]][3], old[r[0]][4]
         out.append(r)
+    for nm, why in OWN.items(): out.append([nm, '-', '-', 'existing', why, '-'])
     names = [r[0] for r in out]
     dup = {n for n in names if names.count(n) > 1 and n not in EXISTING.values()}
     if dup: sys.exit('name clashes: %s' % sorted(dup))
