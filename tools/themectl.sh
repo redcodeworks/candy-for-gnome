@@ -105,8 +105,9 @@ case "$kind" in
 esac
 
 # ---- folders of the old project name ------------------------------------------------------------------------
-# This project was called gnome-themes; its folders carry the marker file .gnome-themes. They are not ours any more: never replaced, removed or adopted by
-# this script (see is_ours). No message is printed about them.
+# This project was called gnome-themes; its folders carry the marker file .gnome-themes. They are not listed or touched by
+# this script silently unless a set or scheme of the same name is being installed or updated: then it is replaced like our own and gets the new marker
+# (see is_ours; remove-theme and remove-icon still leave such folders alone, see may_touch). No message is printed about them.
 old_marker=.gnome-themes
 
 # ---- accents (themes only) -----------------------------------------------------------------------------------
@@ -338,14 +339,14 @@ src_index() {    # src_index ITEM FOLDER: our source's index.theme for that fold
 is_ours() {      # is_ours DIR SRC_INDEX
     [ -d "$1" ] || return 1
     marker_present "$1" && return 0
-    [ -f "$1/$old_marker" ] && return 1     # installed under the old name: never ours, not even by index.theme
+    [ -f "$1/$old_marker" ] && return 0     # carries the old gnome-themes marker: replaced like our own (install and update adopt it with the new marker)
     [ -n "${2:-}" ] && [ -f "$2" ] && [ -f "$1/index.theme" ] && cmp -s "$2" "$1/index.theme"
 }
 # may_touch DIR SRC_INDEX VERB: 0 when DIR is absent, ours, FORCE=1 or the user says yes in a terminal; else 1 (with a message)
 may_touch() {
     local d="$1" a
     [ -e "$d" ] || [ -L "$d" ] || return 0
-    is_ours "$d" "${2:-}" && return 0
+    if is_ours "$d" "${2:-}" && ! { [ "${3:-}" = Remove ] && [ -f "$d/$old_marker" ] && ! marker_present "$d"; }; then return 0; fi   # a removal leaves old-marker folders alone
     [ "${FORCE:-}" = 1 ] && return 0
     if [ "$tty_in" = 1 ]; then
         read -r -u 3 -p "$d exists and was not installed by candy-for-gnome. ${3:-Replace} it? [y/N] " a || a=n
@@ -1113,7 +1114,7 @@ icon_folder_item() {   # icon_folder_item NAME: "<item index>|<folder>" when NAM
     return 1
 }
 icons_pick_many() {   # icons_pick_many install|remove: families first, then the colours or sets of each ticked family; sets chosen (item indexes)
-    local mode="$1" n lab ni fkeys=() j k m fam_ticked=() c
+    local mode="$1" n lab ni fkeys=() j k fam_ticked=() c
     pm_labels=(); pm_on=()
     for n in "${src_names[@]}"; do
         fam_members "$n"; [ "${#fam_idx[@]}" -gt 0 ] || continue
