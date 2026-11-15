@@ -172,7 +172,10 @@ choose_accent() {
     done
     local savedl=("${labels[@]}") rc=0 idx=() cc=0
     labels=("${ls[@]}"); for i in "${!ls[@]}"; do idx+=("$i"); if [ "${acc_names[i]}" = "$cur" ]; then cc=$i; fi; done
+    local sw_sv=("${swatch[@]}") sw_wsv=("${swatch_w[@]}"); sw_clear   # the accent swatches replace the theme list's for this one menu
+    if sw_ok; then for i in "${!ls[@]}"; do sw_set "$i" "${acc_dark[i]}"; done; fi
     tui_cur=$cc; pick=""; tui_one "Accent colour for $sc" "${idx[@]}" || rc=$?; tui_cur=0; labels=("${savedl[@]}")
+    swatch=("${sw_sv[@]}"); swatch_w=("${sw_wsv[@]}")
     if [ "$rc" -eq 0 ] && [ -n "$pick" ]; then accent_pick="${acc_names[pick]}"
     elif [ "$rc" -eq 2 ]; then
         echo; echo "Accent colour for $sc (the scheme's terminal colours):"
@@ -397,6 +400,44 @@ is_adwaita() { [ "${items_adw:-0}" = 1 ] && [ "$1" = Adwaita ]; }
 is_installed() { is_adwaita "$1" && return 0; local f; while read -r f; do [ -e "$dest/$f" ] && is_ours "$dest/$f" "$(src_index "$1" "$f")" && return 0; done < <(folders_of "$1"); return 1; }
 index_of() { local i; for i in "${!items[@]}"; do [ "${items[i]}" = "$1" ] && { echo "$i"; return 0; }; done; return 1; }
 
+# ---- colour swatches in the pickers (decoration only: the labels stay plain text, so filters, lookups and the numbered fallback never see an escape) ---
+# swatch[i] is drawn before the label of entry i (swatch_w[i] = its visible width). Only on a terminal, only when COLORTERM says truecolor or 24bit
+# and NO_COLOR is empty. Entries without a known colour get a blank of the same width so the labels stay aligned.
+swatch=(); swatch_w=(); pl_hex=()   # pl_hex[i]: the display color of entry i of the next pick_label / pick_many_label (colour pickers)
+sw_ok() { [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ -n "${TERM:-}" ] && [ "$TERM" != dumb ] && case "${COLORTERM:-}" in truecolor|24bit) return 0 ;; *) return 1 ;; esac; }
+sw_set() {   # sw_set INDEX HEX...: one two-space block of a truecolor background per colour, then a space; an empty or invalid HEX becomes a blank
+    local i="$1" h s="" w=0; shift
+    for h in "$@"; do
+        if [[ "$h" =~ ^#[0-9a-fA-F]{6}$ ]]; then s+="$(printf '\e[48;2;%d;%d;%dm  \e[0m' "0x${h:1:2}" "0x${h:3:2}" "0x${h:5:2}")"; else s+="  "; fi
+        w=$((w+2))
+    done
+    swatch[i]="$s "; swatch_w[i]=$((w+1))
+}
+sw_clear() { swatch=(); swatch_w=(); }
+declare -A icon_hex=(); icon_hex_loaded=0
+icon_hex_of() {   # the display color of an icon color variant (empty when unknown)
+    if [ "$icon_hex_loaded" = 0 ]; then
+        icon_hex_loaded=1; local n h
+        if [ -f "$root/tools/icon-colors.conf" ]; then while read -r n h; do case "$n" in ""|"#"*) continue ;; esac; icon_hex[$n]="$h"; done < "$root/tools/icon-colors.conf"; fi
+    fi
+    echo "${icon_hex[$1]:-}"
+}
+theme_swatches_done=0
+theme_swatches() {   # themes: the terminal background and the default accent of each scheme before its entry (read with builtins: about 190 schemes per menu)
+    [ "$theme_swatches_done" = 0 ] || return 0
+    theme_swatches_done=1; sw_ok || return 0
+    local i sc f l bg acc n d lt fl
+    for i in "${!items[@]}"; do
+        sc="${items[i]}"; bg=""; acc=""
+        if [ -f "$root/$sc/accents/list" ]; then
+            while read -r n d lt fl; do case "$n" in ""|"#"*) continue ;; esac; [ -n "$acc" ] || acc="$d"; [ "$fl" = default ] && { acc="$d"; break; }; done < "$root/$sc/accents/list"
+            f="$root/$sc/ghostty/candy-for-gnome-$sc-dark"; [ -f "$f" ] || f="$root/$sc/ghostty/candy-for-gnome-$sc-light"
+            if [ -f "$f" ]; then while read -r l; do case "$l" in "background = "*) bg="${l#background = }"; break ;; esac; done < "$f"; fi
+        fi
+        sw_set "$i" "$bg" "$acc"
+    done
+}
+
 # ---- prompts -------------------------------------------------------------------------------------
 # Terminal UI (no dependencies): up/down or j/k move, SPACE toggles, a all, n none, ENTER confirms, q cancels. Without a
 # terminal the numbered lists below are used.
@@ -445,7 +486,7 @@ _tui_end() { stty "$_tui_saved" </dev/tty 2>/dev/null; printf '\e[?25h\n' >&2; t
 # tick count. Ctrl-C and every exit restore the terminal (stty, cursor).
 _tui_run() {
     local mode="$1" header="$2"; shift 2; local cand=("$@") n=$# cur="${tui_cur:-0}" top=0 i r line first=1 filt="" fmode=0 vis=() nv lf
-    local rows=24 cols=80 H=1 prevH=0 prevC=0 sz mark ticked foot hint
+    local rows=24 cols=80 H=1 prevH=0 prevC=0 sz mark ticked foot hint swp swn pre
     [ -t 0 ] && [ -t 2 ] && [ -r /dev/tty ] || return 2
     _tui_saved=$(stty -g </dev/tty) || return 2
     trap '_tui_end; exit 130' INT
@@ -478,9 +519,9 @@ _tui_run() {
         printf '\r\e[K%s\n' "${line:0:$((cols-1))}" >&2
         for ((r=0; r<H; r++)); do
             if [ $((top + r)) -ge "$nv" ]; then printf '\r\e[K\n' >&2; continue; fi
-            i=${vis[top+r]}; line="${labels[${cand[i]}]}"
-            if [ "$mode" = many ]; then mark=" "; [ "${on[${cand[i]}]:-0}" -eq 1 ] && mark="x"; line="[$mark] $line"; fi
-            line="${line:0:$((cols-3))}"
+            i=${vis[top+r]}; line="${labels[${cand[i]}]}"; swp="${swatch[${cand[i]}]:-}"; swn="${swatch_w[${cand[i]}]:-0}"
+            pre=""; if [ "$mode" = many ]; then mark=" "; [ "${on[${cand[i]}]:-0}" -eq 1 ] && mark="x"; pre="[$mark] "; fi
+            line="${pre}${swp}${line:0:$((cols-3-${#pre}-swn))}"   # the swatch (escapes) is not counted: swn is its visible width
             if [ $((top + r)) -eq "$cur" ]; then printf '\r\e[K\e[7m> %s\e[0m\n' "$line" >&2; else printf '\r\e[K  %s\n' "$line" >&2; fi
         done
         if [ "$nv" -eq 0 ]; then foot="0 of 0 shown (of $n)"; else foot="$((top+1))-$((top+H<nv ? top+H : nv)) of $nv"; fi
@@ -556,13 +597,14 @@ gum_run() {
     local mode="$1" header="$2"; shift 2; local cand=("$@") i lab l out line hn rows=24 sz h sel="" items=()
     local -A idx_of=()
     # featured entries (starred) first, then the rest; NO heading or divider rows: gum cannot make a row unselectable, and every row must be a real choice
-    if [ "${pick_keep_order:-0}" = 1 ]; then for i in "${cand[@]}"; do items+=("${labels[i]}"); done   # the caller ordered the list (just-installed first)
+    item_of() { echo "${swatch[$1]:-}${labels[$1]}"; }   # a swatch is part of the item text; gum returns the item WITHOUT its escapes (checked), so the key is the plain text
+    if [ "${pick_keep_order:-0}" = 1 ]; then for i in "${cand[@]}"; do items+=("$(item_of "$i")"); done   # the caller ordered the list (just-installed first)
     else
-        for i in "${cand[@]}"; do [ "${items_adw:-}" = 1 ] && [ "${labels[i]}" = "$adw_label" ] && items+=("${labels[i]}"); done   # the Adwaita entry stays first
-        for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] && items+=("${labels[i]}"); done
-        for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] || { [ "${items_adw:-}" = 1 ] && [ "${labels[i]}" = "$adw_label" ]; } || items+=("${labels[i]}"); done
+        for i in "${cand[@]}"; do [ "${items_adw:-}" = 1 ] && [ "${labels[i]}" = "$adw_label" ] && items+=("$(item_of "$i")"); done   # the Adwaita entry stays first
+        for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] && items+=("$(item_of "$i")"); done
+        for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] || { [ "${items_adw:-}" = 1 ] && [ "${labels[i]}" = "$adw_label" ]; } || items+=("$(item_of "$i")"); done
     fi
-    for i in "${cand[@]}"; do idx_of[${labels[i]}]=$i; [ "$mode" = many ] && [ "${on[i]:-0}" -eq 1 ] && sel+="${sel:+,}${labels[i]}"; done
+    for i in "${cand[@]}"; do idx_of[$(printf '%*s' "${swatch_w[i]:-0}" '')${labels[i]}]=$i; [ "$mode" = many ] && [ "${on[i]:-0}" -eq 1 ] && sel+="${sel:+,}${labels[i]}"; done
     sz=$(stty size </dev/tty 2>/dev/null) && rows=${sz% *}
     h=$((rows - 4)); [ "$h" -gt "${#items[@]}" ] && h=${#items[@]}; [ "$h" -lt 5 ] && h=5
     # colors: terminal palette colors only (ANSI 0-15 or the default foreground), never gum's fixed 256-color pink/purple; a variable the user set is left alone
@@ -579,7 +621,7 @@ gum_run() {
     while IFS= read -r line; do
         [ -n "$line" ] || continue
         if [ -n "${idx_of[$line]+x}" ]; then i=${idx_of[$line]}; else   # a label that came back changed: match by name (star and description stripped)
-            lab="${line#★ }"; lab="${lab%%  (*}"; i=""
+            line="${line#"${line%%[![:space:]]*}"}"; lab="${line#★ }"; lab="${lab%%  (*}"; i=""
             for hn in "${cand[@]}"; do l="${labels[hn]#★ }"; l="${l%%  (*}"; if [ "$l" = "$lab" ]; then i=$hn; break; fi; done
             [ -n "$i" ] || continue
         fi
@@ -592,6 +634,7 @@ chosen=(); on=()
 choose_many() {
     local header="$1"; shift; local cand=("$@") i a mark rc=0 handler
     chosen=()
+    [ "$kind" != themes ] || theme_swatches
     handler=$(pick_handler); picker_used=$handler
     if [ "$handler" = gum ]; then
         gum_run many "$header" "${cand[@]}"; return 0
@@ -623,6 +666,7 @@ pick=""
 choose_one() {
     local header="$1"; shift; local cand=("$@") i a rc=0 handler
     pick=""
+    [ "$kind" != themes ] || theme_swatches
     handler=$(pick_handler)
     if [ "$handler" = gum ]; then gum_run one "$header" "${cand[@]}"; return 0; fi
     tui_one "$header" "$@" || rc=$?
@@ -1014,15 +1058,20 @@ pick_label() {   # pick_label HEADER CURSOR_INDEX LABEL...: one choice among pla
     local header="$1" cur="$2"; shift 2
     local savedl=("${labels[@]}") ls=("$@") idx=() i
     labels=("${ls[@]}"); for i in "${!ls[@]}"; do idx+=("$i"); done
+    local sw_sv=("${swatch[@]}") sw_wsv=("${swatch_w[@]}"); sw_clear
+    if sw_ok && [ "${#pl_hex[@]}" -gt 0 ]; then for i in "${!ls[@]}"; do sw_set "$i" "${pl_hex[i]:-}"; done; fi
     tui_cur=$cur; pick_keep_order=1; choose_one "$header" "${idx[@]}"; pick_keep_order=0; tui_cur=0
-    pick_idx="${pick:-}"; labels=("${savedl[@]}")
+    pick_idx="${pick:-}"; labels=("${savedl[@]}"); swatch=("${sw_sv[@]}"); swatch_w=("${sw_wsv[@]}"); pl_hex=()
 }
 pick_many_label() {   # pick_many_label HEADER: checklist over pm_labels[] with pm_on[] ticks; pm_chosen = the ticked indexes
     local header="$1" savedl=("${labels[@]}") saved_on=() i k idx=()
     for k in "${!on[@]}"; do saved_on[k]="${on[k]}"; done
     labels=("${pm_labels[@]}"); on=(); for i in "${!pm_labels[@]}"; do on[i]="${pm_on[i]:-0}"; idx+=("$i"); done
+    local sw_sv=("${swatch[@]}") sw_wsv=("${swatch_w[@]}"); sw_clear
+    if sw_ok && [ "${#pl_hex[@]}" -gt 0 ]; then for i in "${!pm_labels[@]}"; do sw_set "$i" "${pl_hex[i]:-}"; done; fi
     choose_many "$header" "${idx[@]}"
     pm_chosen=("${chosen[@]}")
+    swatch=("${sw_sv[@]}"); swatch_w=("${sw_wsv[@]}"); pl_hex=()
     labels=("${savedl[@]}"); on=(); for k in "${!saved_on[@]}"; do on[k]="${saved_on[k]}"; done
 }
 icons_pick_switch() {   # family, then colour, then style: sets i (item index) and sw_target (the folder to switch to)
@@ -1045,7 +1094,7 @@ icons_pick_switch() {   # family, then colour, then style: sets i (item index) a
         for k in "${!mem[@]}"; do
             j="${mem[k]}"; if fam_script "$fk"; then lab=$(colour_label "${items[j]}"); else lab="${items[j]}"; fi
             if has_folder "${items[j]}" "$cur"; then lab="$lab  (current)"; ci=$k; fi
-            ls+=("$lab")
+            ls+=("$lab"); if fam_script "$fk"; then pl_hex[k]=$(icon_hex_of "${i_var[${items[j]}]:-}"); fi
         done
         if fam_script "$fk"; then c="$(fam_name "$fk") colour"; else c="$(fam_name "$fk") set"; fi
         pick_label "Switch to which $c?" "$ci" "${ls[@]}"
@@ -1095,7 +1144,7 @@ icons_pick_many() {   # icons_pick_many install|remove: families first, then the
         for k in "${!mem[@]}"; do
             j="${mem[k]}"; if fam_script "$n"; then lab=$(colour_label "${items[j]}"); else lab="${items[j]}"; fi
             if [ "$mode" = install ] && is_installed "${items[j]}"; then lab="✓ $lab"; fi
-            pm_labels+=("$lab")
+            pm_labels+=("$lab"); if fam_script "$n"; then pl_hex[k]=$(icon_hex_of "${i_var[${items[j]}]:-}"); fi
         done
         if fam_script "$n"; then c="colors"; else c="sets"; fi
         if [ "$mode" = install ]; then pick_many_label "$(fam_name "$n") $c to install into $dest"; else pick_many_label "$(fam_name "$n") $c to remove from $dest"; fi
