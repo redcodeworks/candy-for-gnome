@@ -173,7 +173,7 @@ for s in $loop_schemes; do
     done
     last=$(grep -v '^#' "$s/accents/list" | awk 'NF {print $1}' | tail -1); st=$(grep "^$s=" "$T/state/candy-for-gnome/accents" 2>/dev/null | cut -d= -f2)
     [ "$st" = "$last" ] && chk ok "accent remembered ($st)" || chk fail "accent state '$st' != '$last'"
-    h1=$(find "$D" -type f -exec sha1sum {} + | sort | sha1sum); THEMES_DEST=$D just update-theme >/dev/null 2>&1; h2=$(find "$D" -type f -exec sha1sum {} + | sort | sha1sum)
+    h1=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum); THEMES_DEST=$D just update-theme >/dev/null 2>&1; h2=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum)   # the marker carries updated_at, which moves on purpose
     [ "$h1" = "$h2" ] && chk ok "update-theme keeps the remembered accent" || chk fail "update-theme changed the installed tree"
     THEMES_DEST=$D just remove-theme "$s" >/dev/null 2>&1; [ -z "$(ls -A "$D" 2>/dev/null)" ] && chk ok "remove-theme emptied the set" || chk fail "remove-theme left $(ls "$D" | tr '\n' ' ')"
 done
@@ -270,7 +270,7 @@ G="$T/guard-themes"; mkdir -p "$G/Dracula"; echo mine > "$G/Dracula/mine.txt"; p
 out=$(THEMES_DEST=$G just install-theme dracula </dev/null 2>&1); rc=$?
 [ -f "$G/Dracula/mine.txt" ] && [ ! -f "$G/Dracula/.candy-for-gnome" ] && chk ok "install: unrelated folder of the same name left untouched" || chk fail "install replaced an unrelated Dracula"
 printf '%s\n' "$out" | grep -q "not installed by candy-for-gnome" && [ $rc -eq 0 ] && chk ok "install: refusal message, other folders still handled (rc=$rc)" || chk fail "install: no refusal message or rc=$rc"
-[ -f "$G/Dracula-Shell-Dark/.candy-for-gnome" ] && [ "$(cat "$G/Dracula-Shell-Dark/.candy-for-gnome")" = dracula ] && chk ok "install: the other folders were installed with the marker" || chk fail "install: marker missing on Dracula-Shell-Dark"
+[ -f "$G/Dracula-Shell-Dark/.candy-for-gnome" ] && [ "$(sed -n 's/^name=//p' "$G/Dracula-Shell-Dark/.candy-for-gnome")" = dracula ] && chk ok "install: the other folders were installed with the marker" || chk fail "install: marker missing on Dracula-Shell-Dark"
 THEMES_DEST=$G just update-theme </dev/null >/dev/null 2>&1; [ -f "$G/Dracula/mine.txt" ] && chk ok "update: unrelated folder untouched" || chk fail "update replaced an unrelated Dracula"
 THEMES_DEST=$G just remove-theme dracula </dev/null >/dev/null 2>&1
 [ -f "$G/Dracula/mine.txt" ] && [ ! -e "$G/Dracula-Shell-Dark" ] && chk ok "remove: unrelated folder untouched, our folders removed" || chk fail "remove: wrong result ($(ls "$G" | tr '\n' ' '))"
@@ -783,6 +783,13 @@ ICON_SOURCES="$T/drift.conf" just remove-icon Real-One >/dev/null 2>&1; rm -rf "
 printf 'fake|file://%s/icons-src|top|Fake-Dark Fake-Light\n' "$T" > "$T/sources.conf"
 just list-icons 2>&1 | grep -q Fake-Dark && chk ok "list-icons shows the sets" || chk fail "list-icons"
 just install-icon Fake-Dark >/dev/null 2>&1; [ -d "$ICONS_DEST/Fake-Dark" ] && chk ok "install-icon" || chk fail "install-icon"
+m="$ICONS_DEST/Fake-Dark/.candy-for-gnome"; ia=$(sed -n 's/^installed_at=//p' "$m")
+grep -qx 'schema=1' "$m" && grep -qx 'kind=icon' "$m" && grep -qx 'name=Fake-Dark' "$m" && grep -qx 'folder=Fake-Dark' "$m" && grep -q '^source=file://' "$m" && grep -Eq '^source_commit=[0-9a-f]{40}$' "$m" && grep -Eq '^installed_at=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$' "$m" && grep -q '^updated_at=' "$m" && grep -q '^installer=' "$m" && chk ok "marker: an icon install writes the key=value marker (schema, kind, name, folder, source, source_commit, installed_at, updated_at, installer)" || chk fail "icon marker: $(cat "$m")"
+sleep 1; just update-icon </dev/null >/dev/null 2>&1
+[ "$(sed -n 's/^installed_at=//p' "$m")" = "$ia" ] && [ "$(sed -n 's/^updated_at=//p' "$m")" != "$ia" ] && chk ok "marker: update keeps installed_at and moves updated_at" || chk fail "marker update times: $(cat "$m")"
+echo "Fake-Dark" > "$m"; just remove-icon Fake-Dark </dev/null >/dev/null 2>&1; [ ! -e "$ICONS_DEST/Fake-Dark" ] && chk ok "marker: a legacy one-line marker is still ours (remove-icon works)" || chk fail "legacy marker remove"
+just install-icon Fake-Dark </dev/null >/dev/null 2>&1; echo "Fake-Dark" > "$m"; just update-icon </dev/null >/dev/null 2>&1
+grep -qx 'schema=1' "$m" && grep -qx 'name=Fake-Dark' "$m" && chk ok "marker: a legacy marker is upgraded to key=value by the next update, the name kept" || chk fail "legacy upgrade: $(cat "$m")"
 out=$(printf '\n' | just install-icon 2>&1); ! printf '%s\n' "$out" | grep -q '\[x\]' && printf '%s\n' "$out" | grep -q 'Nothing selected' && chk ok "install-icon: nothing is pre-ticked even with a set installed; Enter alone installs nothing" || chk fail "install-icon preselection: $out"
 : > "$LOG"; just switch-icon Fake-Dark >/dev/null 2>&1; grep -q "icon-theme Fake-Dark" "$LOG" && chk ok "switch-icon" || chk fail "switch-icon"
 (cd "$T/icons-src" && echo y > Fake-Dark/apps/b.svg && git add -A && git commit -q -m more)
@@ -989,6 +996,17 @@ firsts=$(grep -E '^[A-Za-z-]+  \(' "$STUB_LOG" | head -2 | sed 's/  (.*//' | tr 
 rm -f "$STUB_LOG"; out=$(GUM_STUB_EXIT=130 ICONS_DEST=$IP gumpty tools/themectl.sh icons install Fake-Light | tr -d '\r')
 printf '%s' "$out" | grep -q "To switch later: just switch-icon Fake-Light" && chk ok "icons: Esc skips and prints just switch-icon NAME" || chk fail "icon cancel: $(printf '%s' "$out" | tail -3)"
 rm -rf "$AP" "$IP"
+
+# ---- marker metadata (themes) ---------------------------------------------------------------------------------------------------------------
+echo "=== marker metadata"
+app_reset; aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+gf=""; for d in "$APD"/*/; do d=${d%/}; case "$d" in *Shell*) ;; *) [ -n "$gf" ] || gf=${d##*/} ;; esac; done; mm="$APD/$gf/.candy-for-gnome"
+grep -qx 'schema=1' "$mm" && grep -qx 'kind=theme' "$mm" && grep -qx 'name=gruvbox-material' "$mm" && grep -qx "folder=$gf" "$mm" && grep -Eq '^source_commit=[0-9a-f]{40}$' "$mm" && grep -q '^installed_at=' "$mm" && grep -q '^source=' "$mm" && chk ok "marker: a theme install writes the key=value marker (name = the scheme)" || chk fail "theme marker: $(cat "$mm")"
+ia=$(sed -n 's/^installed_at=//p' "$mm"); sleep 1; aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+[ "$(sed -n 's/^installed_at=//p' "$mm")" = "$ia" ] && [ "$(sed -n 's/^updated_at=//p' "$mm")" != "$ia" ] && chk ok "marker: installing again keeps installed_at and moves updated_at" || chk fail "theme marker times"
+echo gruvbox-material > "$mm"; aps just update-theme </dev/null >/dev/null 2>&1; grep -qx 'name=gruvbox-material' "$mm" && grep -qx 'schema=1' "$mm" && chk ok "marker: a legacy one-line theme marker is upgraded by update-theme" || chk fail "theme legacy upgrade: $(cat "$mm")"
+echo gruvbox-material > "$mm"; aps just remove-theme gruvbox-material </dev/null >/dev/null 2>&1; [ ! -e "$APD/$gf" ] && chk ok "marker: remove-theme works on a legacy marker" || chk fail "theme legacy remove"
+aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1; aps just remove-theme gruvbox-material </dev/null >/dev/null 2>&1; [ ! -e "$APD/$gf" ] && chk ok "marker: remove-theme works on the new format" || chk fail "theme new remove"
 
 # ---- missing config files are created with only the theme lines; existing ones are never edited without a yes -----------------------------------
 echo "=== created configs"

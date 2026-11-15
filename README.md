@@ -32,6 +32,8 @@ The icon menus are grouped: `switch-icon` first asks for the family (Adwaita, Pa
 
 When a tool has no config file yet, the installer creates one that holds only the theme lines; an existing config is only changed after you say yes. Install checklists start with nothing ticked; installing a set that is already installed refreshes it.
 
+Every installed folder carries a small `.candy-for-gnome` marker file recording where it came from and when it was installed and last updated.
+
 On a terminal, key messages start with an emoji (✅ installed, 🎨 applied, 🔄 updated, 🧹 removed, ❗ something for you to do, 🟡 warning, ❌ error). Set `CANDY_PLAIN=1` or `NO_EMOJI=1` (any non-empty value, like `NO_COLOR`; the same switch turns them off in the image's `ujust` recipes) to switch them off; piped or captured output never has them.
 
 | Themes | Icons | |
