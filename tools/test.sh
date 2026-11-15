@@ -793,6 +793,25 @@ cp -a "$T/icons-src/Fake-Dark" "$ICONS_DEST/Fake-Dark"; rm -rf "$ICONS_DEST/Fake
 just install-icon Fake-Dark </dev/null >/dev/null 2>&1; [ ! -e "$ICONS_DEST/Fake-Dark/stale.txt" ] && [ -f "$ICONS_DEST/Fake-Dark/.candy-for-gnome" ] && chk ok "icons: a pre-marker installation is adopted" || chk fail "icons: legacy not adopted"
 just remove-icon Fake-Dark </dev/null >/dev/null 2>&1; just remove-icon Fake-Light </dev/null >/dev/null 2>&1
 
+# root layout (Conflux): the repo root is the set; top-level @2x symlinks stay relative links, upstream scripts and docs stay out
+mkdir -p "$T/icons-root" && (cd "$T/icons-root" && git init -q && mkdir -p apps images .github && printf '[Icon Theme]\nName=Rooty\nInherits=hicolor,Adwaita\nDirectories=apps\n' > index.theme \
+    && echo x > apps/a.svg && echo x > images/shot.png && echo x > preview.png && echo r > README.md && echo l > LICENSE && echo c > CREDITS.md && echo c > CONTRIBUTING.md && echo g > .gitignore \
+    && printf '#!/bin/sh\ntouch "$0.ran"\n' > update.sh && chmod +x update.sh && ln -s apps 'apps@2x' && git add -A && git commit -q -m init)
+printf 'rooty|file://%s/icons-root|root|Rooty\n' "$T" > "$T/root.conf"
+out=$(ICON_SOURCES="$T/root.conf" just install-icon Rooty 2>&1); R="$ICONS_DEST/Rooty"
+[ -f "$R/index.theme" ] && [ -f "$R/apps/a.svg" ] && [ -f "$R/.candy-for-gnome" ] && ! printf '%s\n' "$out" | grep -q '^warning:' && chk ok "root layout: the repo root is installed as the set, marked, no registry warning" || chk fail "root layout install"
+[ -L "$R/apps@2x" ] && [ "$(readlink "$R/apps@2x")" = apps ] && [ -f "$R/apps@2x/a.svg" ] && chk ok "root layout: top-level @2x symlinks stay relative symlinks" || chk fail "root layout: symlink lost"
+[ -f "$R/LICENSE" ] && [ -f "$R/CREDITS.md" ] && [ ! -e "$R/update.sh" ] && [ ! -e "$R/images" ] && [ ! -e "$R/preview.png" ] && [ ! -e "$R/README.md" ] && [ ! -e "$R/CONTRIBUTING.md" ] && [ ! -e "$R/.gitignore" ] && [ ! -e "$R/.git" ] && [ ! -e "$R/.github" ] && [ ! -e "$T/cache/icons/rooty/update.sh.ran" ] && chk ok "root layout: LICENSE and CREDITS kept; update.sh, images, previews, docs and git files left out, update.sh never run" || chk fail "root layout: wrong file set ($(ls -A "$R" | tr '\n' ' '))"
+mkdir -p "$T/icons-tp"; ICONS_DEST="$T/icons-tp"; mkdir -p "$ICONS_DEST/Rooty"; echo mine > "$ICONS_DEST/Rooty/mine.txt"
+ICON_SOURCES="$T/root.conf" just install-icon Rooty </dev/null >/dev/null 2>&1; ICON_SOURCES="$T/root.conf" just remove-icon Rooty </dev/null >/dev/null 2>&1
+[ -f "$ICONS_DEST/Rooty/mine.txt" ] && chk ok "root layout: a same-named third-party folder is left alone" || chk fail "root layout: third-party folder touched"
+ICONS_DEST="$T/icons"; ICON_SOURCES="$T/root.conf" just remove-icon Rooty >/dev/null 2>&1; [ ! -e "$R" ] && chk ok "root layout: remove-icon removes the marked copy" || chk fail "root layout: remove"
+# the shipped registry declares Conflux as a root source and every icon command knows it without a clone
+reg=$(grep '^conflux|' tools/icon-sources.conf)
+[ "$reg" = "conflux|https://github.com/MoshiurRahmanAdib/Conflux-Icon-Theme.git|root|Conflux" ] && chk ok "registry: the conflux line (root layout, name Conflux)" || chk fail "registry: conflux line ($reg)"
+out=$(ICON_SOURCES="$PWD/tools/icon-sources.conf" CANDY_FOR_GNOME_CACHE="$T/cache2" just list-icons 2>&1)
+printf '%s\n' "$out" | grep -q 'Conflux' && [ ! -e "$T/cache2/icons" ] && chk ok "list-icons with the shipped registry shows Conflux without cloning" || chk fail "list-icons lacks Conflux"
+
 # ---- Flatpak access: grant after a y, record only what was added, undo only that ------------------------------------------------
 echo "=== flatpak access"
 FS="$T/themes-fp"; FI="$T/icons-fp"; fpst="$XDG_STATE_HOME/candy-for-gnome/flatpak-overrides"; rm -f "$fpst"

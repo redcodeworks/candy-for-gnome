@@ -91,6 +91,15 @@ Shared assets
   copied unmodified by tools/assets-gen.py from the installed GTK (LGPL-2.0-or-later; assets/LICENSE is the LGPL text). They are stored once;
   the installer copies them into every installed theme folder, so installed themes carry them together with their LICENSE.
 
+Icon sets (not part of this repository)
+  tools/icon-sources.conf lists upstream icon repositories that the installer clones to the user's cache and copies into the
+  user's icon folder on request; no icon file of them is committed here, and they keep their own licences (the installed copy
+  keeps the upstream LICENSE).
+  Conflux  https://github.com/MoshiurRahmanAdib/Conflux-Icon-Theme, GPL-3.0, by Moshiur Rahman Adib and contributors (the
+           LICENSE file names no copyright holder; this attribution follows the repository owner and its CREDITS.md, which
+           also credits the icon packs some icons derive from). Cloned at install time only; GPL-3.0 does not conflict with this
+           repository's MIT tooling because the two are never combined or redistributed together.
+
 Licences by path
   themes/<Name>/ and assets/   the generated and recoloured theme files derive from the LGPL works above, so they
                    stay under the LGPL: the GTK files LGPL-2.0-or-later (use them under LGPL-2.1-or-later),

@@ -46,7 +46,7 @@ shows what is available (a checkmark marks the installed ones); the install chec
 unticked. Featured themes are listed first (marked with a star), then the rest alphabetically. The
 palettes come from the built-in Ptyxis terminal palettes, so the terminal, the apps and the Shell match.
 
-Icon sets: Papirus, Gruvbox Plus, Zafiro, candy, Tela and Fluent (sources in `tools/icon-sources.conf`).
+Icon sets: Papirus, Gruvbox Plus, Zafiro, candy, Tela, Fluent and Conflux (sources in `tools/icon-sources.conf`).
 `switch-theme` also selects the matching Ptyxis built-in palette (the light or dark one, by the system setting, for schemes that have two) and the Text Editor color scheme.
 
 ## Ghostty
@@ -101,7 +101,8 @@ The contributor workflow and design notes are in `CLAUDE.md`.
 
 Tooling and docs are MIT (`LICENSE`). The generated theme files derive from GTK's and GNOME Shell's stock
 stylesheets and stay LGPL: each `*/themes/<Name>/` folder carries its own `LICENSE`. Palette credits and
-the exact split are in `NOTICE`.
+the exact split are in `NOTICE`. Icon sets are not part of this repository: they are downloaded from their own
+projects when you install them and keep their own licenses (Conflux is GPL-3.0, by Moshiur Rahman Adib and contributors).
 
 ## Disclaimer
 
