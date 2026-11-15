@@ -806,6 +806,63 @@ mkdir -p "$T/icons-tp"; ICONS_DEST="$T/icons-tp"; mkdir -p "$ICONS_DEST/Rooty"; 
 ICON_SOURCES="$T/root.conf" just install-icon Rooty </dev/null >/dev/null 2>&1; ICON_SOURCES="$T/root.conf" just remove-icon Rooty </dev/null >/dev/null 2>&1
 [ -f "$ICONS_DEST/Rooty/mine.txt" ] && chk ok "root layout: a same-named third-party folder is left alone" || chk fail "root layout: third-party folder touched"
 ICONS_DEST="$T/icons"; ICON_SOURCES="$T/root.conf" just remove-icon Rooty >/dev/null 2>&1; [ ! -e "$R" ] && chk ok "root layout: remove-icon removes the marked copy" || chk fail "root layout: remove"
+# script-t layout (WhiteSur): a fake install.sh that takes -d DIR -n NAME -t VARIANT, builds <name><variant>{,-light,-dark} and links the
+# light/dark folders to the base one; a bare variant, -t all and -a/-b/-p must never be passed
+mkdir -p "$T/icons-ws" && (cd "$T/icons-ws" && git init -q && cat > install.sh <<'WSE'
+#!/usr/bin/env bash
+set -eo pipefail
+echo "$*" >> "$(dirname "$0")/args.log"
+dest=; name=WhiteSur; theme=; V=('' -purple -pink -red -orange -yellow -green -grey -nord)
+while [ "$#" -gt 0 ]; do case "$1" in
+    -d) dest="$2"; shift 2 ;; -n) name="$2"; shift 2 ;;
+    -t) shift; case "$1" in
+        default) theme="${V[0]}" ;;
+        purple) theme="${V[1]}" ;;
+        pink) theme="${V[2]}" ;;
+        red) theme="${V[3]}" ;;
+        orange) theme="${V[4]}" ;;
+        yellow) theme="${V[5]}" ;;
+        green) theme="${V[6]}" ;;
+        grey) theme="${V[7]}" ;;
+        nord) theme="${V[8]}" ;;
+        *) echo "bad variant $1"; exit 1 ;; esac; shift ;;
+    *) echo "ERROR: Unrecognized installation option '$1'."; exit 1 ;; esac; done
+for c in '' -light -dark; do
+    d="$dest/$name$theme$c"; mkdir -p "$d/apps"; printf '[Icon Theme]\nName=%s\nDirectories=apps\n' "$name$theme$c" > "$d/index.theme"
+    if [ -z "$c" ]; then echo x > "$d/apps/a.svg"; else ln -s "../../$name$theme/apps/a.svg" "$d/apps/a.svg"; fi
+done
+WSE
+    chmod +x install.sh && git add -A && git commit -q -m init)
+V9="standard purple pink red orange yellow green grey nord"
+printf 'WhiteSur|file://%s/icons-ws|script-t|%s\n' "$T" "$V9" > "$T/ws.conf"
+WSD="$T/icons-wsd"; mkdir -p "$WSD"; rm -rf "$T/cache/icons/WhiteSur"
+out=$(ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just list-icons 2>&1)
+[ "$(printf '%s\n' "$out" | grep -c 'WhiteSur')" -eq 9 ] && printf '%s\n' "$out" | grep -q 'WhiteSur-nord' && [ ! -e "$T/cache/icons/WhiteSur" ] && chk ok "script-t: list-icons shows the nine WhiteSur sets from the registry without cloning" || chk fail "script-t: list-icons ($(printf '%s' "$out" | grep -c WhiteSur))"
+out=$(ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just install-icon WhiteSur 2>&1)
+WA="$T/cache/icons/WhiteSur/args.log"
+[ -d "$WSD/WhiteSur" ] && [ -d "$WSD/WhiteSur-dark" ] && [ -d "$WSD/WhiteSur-light" ] && [ ! -e "$WSD/WhiteSur-purple" ] && [ -f "$WSD/WhiteSur-dark/.candy-for-gnome" ] && chk ok "script-t: the standard set is the three folders, marked, and no other variant" || chk fail "script-t: standard install ($out)"
+[ -f "$WSD/WhiteSur-dark/apps/a.svg" ] && [ -L "$WSD/WhiteSur-dark/apps/a.svg" ] && chk ok "script-t: the dark and light folders keep their relative links to the base folder" || chk fail "script-t: links lost"
+grep -Eq -- '^-d /.* -n WhiteSur -t default$' "$WA" && ! grep -Eq -- ' -t all| -a| -b| -p' "$WA" && chk ok "script-t: standard runs -t default with -n WhiteSur in a temp dir, never -t all, -a, -b or -p" || chk fail "script-t: arguments ($(cat "$WA" 2>/dev/null))"
+ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just install-icon WhiteSur-nord >/dev/null 2>&1
+n=0; for f in WhiteSur WhiteSur-dark WhiteSur-light WhiteSur-nord WhiteSur-nord-dark WhiteSur-nord-light; do [ -d "$WSD/$f" ] && n=$((n+1)); done
+tail -1 "$WA" | grep -Eq -- ' -n WhiteSur -t nord$' && [ "$n" -eq 6 ] && chk ok "script-t: a color variant installs next to the standard set (-t nord)" || chk fail "script-t: nord ($n)"
+ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just remove-icon WhiteSur >/dev/null 2>&1
+[ ! -e "$WSD/WhiteSur" ] && [ ! -e "$WSD/WhiteSur-light" ] && [ -d "$WSD/WhiteSur-nord" ] && [ -d "$WSD/WhiteSur-nord-dark" ] && chk ok "script-t: remove-icon WhiteSur removes its three folders and keeps WhiteSur-nord" || chk fail "script-t: remove"
+out=$(ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just remove-icon WhiteSur-nord 2>&1); [ -z "$(ls -A "$WSD")" ] && ! printf '%s\n' "$out" | grep -q 'Refused' && chk ok "script-t: remove-icon WhiteSur-nord leaves nothing behind" || chk fail "script-t: leftovers ($(ls -A "$WSD"))"
+mkdir -p "$WSD/WhiteSur-dark"; echo mine > "$WSD/WhiteSur-dark/mine.txt"
+ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just install-icon WhiteSur </dev/null >/dev/null 2>&1
+[ -f "$WSD/WhiteSur-dark/mine.txt" ] && [ ! -e "$WSD/WhiteSur-dark/.candy-for-gnome" ] && chk ok "script-t: a same-named third-party folder is left alone without a terminal" || chk fail "script-t: third-party folder touched"
+rm -rf "${WSD:?}"/*
+# verify_source: a registry variant missing from install.sh and a missing install.sh are warned about, never fatal
+printf 'WhiteSur|file://%s/icons-ws|script-t|%s teal\n' "$T" "$V9" > "$T/ws2.conf"; rm -rf "$T/cache/icons/WhiteSur"
+out=$(ICON_SOURCES="$T/ws2.conf" ICONS_DEST="$WSD" just install-icon WhiteSur 2>&1)
+printf '%s\n' "$out" | grep -q 'warning: WhiteSur: registry says teal, upstream has no teal' && [ -d "$WSD/WhiteSur" ] && ! printf '%s\n' "$out" | grep -q 'registry says purple' && chk ok "script-t: verify_source warns about a variant install.sh lacks, and the install still works" || chk fail "script-t: verify_source ($out)"
+rm -rf "${WSD:?}"/* "$T/cache/icons/WhiteSur"
+# the shipped registry declares WhiteSur with the nine colors
+reg=$(grep '^WhiteSur|' tools/icon-sources.conf)
+[ "$reg" = "WhiteSur|https://github.com/vinceliuice/WhiteSur-icon-theme.git|script-t|$V9" ] && chk ok "registry: the WhiteSur line (script-t, nine colors)" || chk fail "registry: WhiteSur line ($reg)"
+out=$(ICON_SOURCES="$PWD/tools/icon-sources.conf" CANDY_FOR_GNOME_CACHE="$T/cache2" just list-icons 2>&1)
+[ "$(printf '%s\n' "$out" | grep -c 'WhiteSur')" -eq 9 ] && [ ! -e "$T/cache2/icons" ] && chk ok "list-icons with the shipped registry shows the nine WhiteSur sets without cloning" || chk fail "list-icons lacks WhiteSur"
 # the shipped registry declares Conflux as a root source and every icon command knows it without a clone
 reg=$(grep '^conflux|' tools/icon-sources.conf)
 [ "$reg" = "conflux|https://github.com/MoshiurRahmanAdib/Conflux-Icon-Theme.git|root|Conflux" ] && chk ok "registry: the conflux line (root layout, name Conflux)" || chk fail "registry: conflux line ($reg)"
