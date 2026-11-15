@@ -805,7 +805,7 @@ out=$(ICON_SOURCES="$T/root.conf" just install-icon Rooty 2>&1); R="$ICONS_DEST/
 mkdir -p "$T/icons-tp"; ICONS_DEST="$T/icons-tp"; mkdir -p "$ICONS_DEST/Rooty"; echo mine > "$ICONS_DEST/Rooty/mine.txt"
 ICON_SOURCES="$T/root.conf" just install-icon Rooty </dev/null >/dev/null 2>&1; ICON_SOURCES="$T/root.conf" just remove-icon Rooty </dev/null >/dev/null 2>&1
 [ -f "$ICONS_DEST/Rooty/mine.txt" ] && chk ok "root layout: a same-named third-party folder is left alone" || chk fail "root layout: third-party folder touched"
-ICON_SOURCES="$T/root.conf" just remove-icon Rooty >/dev/null 2>&1; ICONS_DEST="$T/icons"; just remove-icon Rooty >/dev/null 2>&1; [ ! -e "$R" ] && chk ok "root layout: remove-icon removes the marked copy" || chk fail "root layout: remove"
+ICONS_DEST="$T/icons"; ICON_SOURCES="$T/root.conf" just remove-icon Rooty >/dev/null 2>&1; [ ! -e "$R" ] && chk ok "root layout: remove-icon removes the marked copy" || chk fail "root layout: remove"
 # the shipped registry declares Conflux as a root source and every icon command knows it without a clone
 reg=$(grep '^conflux|' tools/icon-sources.conf)
 [ "$reg" = "conflux|https://github.com/MoshiurRahmanAdib/Conflux-Icon-Theme.git|root|Conflux" ] && chk ok "registry: the conflux line (root layout, name Conflux)" || chk fail "registry: conflux line ($reg)"
