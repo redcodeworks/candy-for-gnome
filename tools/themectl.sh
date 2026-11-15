@@ -108,8 +108,8 @@ esac
 
 # ---- folders of the old project name ------------------------------------------------------------------------
 # This project was called gnome-themes; its folders carry the marker file .gnome-themes. They are not listed or touched by
-# this script silently unless a set or scheme of the same name is being installed or updated: then it is replaced like our own and gets the new marker
-# (see is_ours; remove-theme and remove-icon still leave such folders alone, see may_touch). No message is printed about them.
+# this script silently unless a set or scheme of the same name is being installed, updated or removed: then it is treated like our own (install and update give it the new marker)
+# (see is_ours); remove-theme and remove-icon take them too. No message is printed about them.
 old_marker=.gnome-themes
 
 # ---- accents (themes only) -----------------------------------------------------------------------------------
@@ -341,14 +341,14 @@ src_index() {    # src_index ITEM FOLDER: our source's index.theme for that fold
 is_ours() {      # is_ours DIR SRC_INDEX
     [ -d "$1" ] || return 1
     marker_present "$1" && return 0
-    [ -f "$1/$old_marker" ] && return 0     # carries the old gnome-themes marker: replaced like our own (install and update adopt it with the new marker)
+    [ -f "$1/$old_marker" ] && return 0     # carries the old gnome-themes marker: ours for every verb (install and update adopt it with the new marker, remove removes it)
     [ -n "${2:-}" ] && [ -f "$2" ] && [ -f "$1/index.theme" ] && cmp -s "$2" "$1/index.theme"
 }
 # may_touch DIR SRC_INDEX VERB: 0 when DIR is absent, ours, FORCE=1 or the user says yes in a terminal; else 1 (with a message)
 may_touch() {
     local d="$1" a
     [ -e "$d" ] || [ -L "$d" ] || return 0
-    if is_ours "$d" "${2:-}" && ! { [ "${3:-}" = Remove ] && [ -f "$d/$old_marker" ] && ! marker_present "$d"; }; then return 0; fi   # a removal leaves old-marker folders alone
+    is_ours "$d" "${2:-}" && return 0   # old-marker folders count as ours for every verb, removal included
     [ "${FORCE:-}" = 1 ] && return 0
     if [ "$tty_in" = 1 ]; then
         read -r -u 3 -p "$d exists and was not installed by candy-for-gnome. ${3:-Replace} it? [y/N] " a || a=n
