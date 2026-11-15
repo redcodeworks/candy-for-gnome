@@ -514,8 +514,10 @@ _tui_run() {
             if [ $((top + r)) -ge "$nv" ]; then printf '\r\e[K\n' >&2; continue; fi
             i=${vis[top+r]}; line="${labels[${cand[i]}]}"; swp="${swatch[${cand[i]}]:-}"; swn="${swatch_w[${cand[i]}]:-0}"
             pre=""; if [ "$mode" = many ]; then mark=" "; [ "${on[${cand[i]}]:-0}" -eq 1 ] && mark="x"; pre="[$mark] "; fi
-            line="${pre}${swp}${line:0:$((cols-3-${#pre}-swn))}"   # the swatch (escapes) is not counted: swn is its visible width
-            if [ $((top + r)) -eq "$cur" ]; then printf '\r\e[K\e[7m> %s\e[0m\n' "$line" >&2; else printf '\r\e[K  %s\n' "$line" >&2; fi
+            line="${line:0:$((cols-3-${#pre}-swn))}"   # the swatch (escapes) is not counted: swn is its visible width
+            if [ $((top + r)) -ne "$cur" ]; then printf '\r\e[K  %s%s%s\n' "$pre" "$swp" "$line" >&2
+            elif [[ "$swp" == *$'\e'* ]]; then printf '\r\e[K\e[7m> %s\e[27m%s\e[7m %s\e[0m\n' "$pre" "${swp% }" "$line" >&2   # reverse video would swap the swatch's colour away: switch it off for the swatch, whose own reset ends the highlight, then reopen it for the label
+            else printf '\r\e[K\e[7m> %s%s%s\e[0m\n' "$pre" "$swp" "$line" >&2; fi
         done
         if [ "$nv" -eq 0 ]; then foot="0 of 0 shown (of $n)"; else foot="$((top+1))-$((top+H<nv ? top+H : nv)) of $nv"; fi
         [ -n "$filt" ] && foot="$foot  filter: $filt"

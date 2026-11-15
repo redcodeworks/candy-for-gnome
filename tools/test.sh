@@ -1182,9 +1182,52 @@ except Exception: pass
 sys.stdout.buffer.write(out)
 PY
 swp() { python3 -I "$T/swpty.py" "$@"; }
+cat > "$T/sgrrow.py" <<'PY'
+import sys, re
+# sgrrow.py MODE EXPECTED_CELLS...: read the raw picker output, take the LAST cursor row (it starts with ESC[7m>) and simulate its SGR state per cell.
+# Each expected cell is "R,G,B" (a swatch cell: reverse off, that background); the label cells after them must have reverse on. MODE row = cursor row, plain = the last
+# non-cursor row that has a swatch (must be "  " + swatch blocks + " " + label without any reverse video).
+mode = sys.argv[1]; want = [tuple(int(v) for v in c.split(',')) for c in sys.argv[2:]]
+raw = sys.stdin.buffer.read().decode('utf-8', 'replace')
+rows = [r for r in raw.split('\n')]
+tok = re.compile(r'\x1b\[([0-9;]*)m|(.)', re.S)
+def cells(row):
+    rev = False; bg = None; out = []
+    for m in tok.finditer(row):
+        if m.group(2) is not None:
+            out.append((m.group(2), rev, bg)); continue
+        a = [int(x) if x else 0 for x in m.group(1).split(';')]; i = 0
+        while i < len(a):
+            if a[i] == 0: rev = False; bg = None
+            elif a[i] == 7: rev = True
+            elif a[i] == 27: rev = False
+            elif a[i] == 48 and a[i+1:i+2] == [2]: bg = tuple(a[i+2:i+5]); i += 4
+            elif a[i] == 49: bg = None
+            i += 1
+    return out
+cur = [r for r in rows if '\x1b[7m>' in r]
+if mode == 'row':
+    c = cells(cur[-1].split('\x1b[K', 1)[-1]) if cur else []
+    txt = ''.join(x[0] for x in c)
+    i = txt.index('>') + 1; cs = c[i:]
+    while cs and cs[0][0] == ' ' and cs[0][2] is None and not cs[0][1] and False: cs.pop(0)
+    # skip a checklist mark such as "[ ] " (highlighted text), then the swatch cells
+    j = 0
+    while j < len(cs) and cs[j][2] is None: j += 1
+    sw = cs[j:j + 2 * len(want)]
+    ok = len(sw) == 2 * len(want) and all((not sw[2*k][1]) and sw[2*k][2] == want[k] and (not sw[2*k+1][1]) and sw[2*k+1][2] == want[k] for k in range(len(want)))
+    label = cs[j + 2 * len(want):]
+    ok = ok and len(label) > 3 and all(x[1] and x[2] is None for x in label[:3])
+    print('OK' if ok else 'BAD %r' % [(x[0], x[1], x[2]) for x in cs[:12]])
+else:
+    cand = [r for r in rows if re.search(r'\x1b\[48;2;', r) and '\x1b[7m' not in r and r.lstrip('\r\x1b[K').startswith('  ') or False]
+    ok = bool(cand) and all('\x1b[7m' not in r and '\x1b[27m' not in r for r in cand[-2:])
+    print('OK' if ok else 'BAD')
+PY
 SWD="$T/sw-themes"; mkdir -p "$SWD"
 raw=$(THEMES_DEST=$SWD swp 30 80 q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1"}' tools/themectl.sh themes install | tr -d '\r')
 printf '%s' "$raw" | grep -qF $'\e[48;2;46;52;64m  \e[0m' && printf '%s' "$raw" | grep -qF $'\e[48;2;136;192;208m  \e[0m' && chk ok "swatches: the theme list shows the scheme background and its default accent before each entry (nordic 2E3440 + 88C0D0)" || chk fail "theme swatches missing"
+[ "$(printf '%s' "$raw" | python3 -I "$T/sgrrow.py" row 46,52,64 136,192,208)" = OK ] && chk ok "swatches: on the highlighted checklist row both squares of the pair (background and accent) keep their colors and the label is highlighted" || chk fail "cursor row pair: $(printf '%s' "$raw" | python3 -I "$T/sgrrow.py" row 46,52,64 136,192,208)"
 raw=$(THEMES_DEST=$SWD swp 30 80 q '{"COLORTERM":null,"TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1"}' tools/themectl.sh themes install | tr -d '\r'); ! printf '%s' "$raw" | grep -qF $'48;2;' && chk ok "swatches: no COLORTERM, no swatches" || chk fail "swatches without COLORTERM"
 raw=$(THEMES_DEST=$SWD swp 30 80 q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":"1","CANDY_PLAIN":"1"}' tools/themectl.sh themes install | tr -d '\r'); ! printf '%s' "$raw" | grep -qF $'48;2;' && chk ok "swatches: NO_COLOR set, no swatches" || chk fail "swatches with NO_COLOR"
 raw=$(COLORTERM=truecolor THEMES_DEST=$SWD tools/themectl.sh themes list </dev/null 2>&1; printf 'q\n' | COLORTERM=truecolor THEMES_DEST=$SWD tools/themectl.sh themes install 2>&1); ! printf '%s' "$raw" | grep -qF $'48;2;' && chk ok "swatches: never in list output or the numbered no-terminal fallback" || chk fail "swatches in plain output"
@@ -1194,6 +1237,8 @@ raw=$(THEMES_DEST=$SWD swp 12 40 q '{"COLORTERM":"truecolor","TERM":"xterm-256co
 rm -rf "$SWD"; mkdir -p "$SWD"; THEMES_DEST=$SWD tools/themectl.sh themes install nordic >/dev/null 2>&1
 raw=$(THEMES_DEST=$SWD swp 30 80 q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1"}' tools/themectl.sh themes switch nordic | tr -d '\r')
 printf '%s' "$raw" | grep -qF $'\e[48;2;191;97;106m  \e[0m' && chk ok "swatches: the accent submenu shows each accent colour (nordic red BF616A)" || chk fail "accent swatches missing"
+[ "$(printf '%s' "$raw" | python3 -I "$T/sgrrow.py" row 136,192,208)" = OK ] && chk ok "swatches: on the highlighted row the swatch keeps its color (cyan 88C0D0, reverse video off at the swatch) and the label is highlighted" || chk fail "cursor row swatch: $(printf '%s' "$raw" | python3 -I "$T/sgrrow.py" row 136,192,208)"
+[ "$(printf '%s' "$raw" | python3 -I "$T/sgrrow.py" plain)" = OK ] && chk ok "swatches: rows without the cursor are drawn as before (no reverse video around the swatch)" || chk fail "non-cursor row changed"
 FD2="$T/sw-icons"; mkdir -p "$FD2"/{Col,Col-dark,Col-light,Col-blue,Col-blue-dark,Col-blue-light}; for d in "$FD2"/*; do : > "$d/.candy-for-gnome"; done
 raw=$(ICON_SOURCES="$T/fam.conf" ICONS_DEST="$FD2" swp 30 80 down,enter,q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1","THEMES_PICKER":"builtin"}' tools/themectl.sh icons switch | tr -d '\r')
 printf '%s' "$raw" | grep -qF $'\e[48;2;52;152;219m  \e[0m' && chk ok "swatches: the icon color picker shows the variant color (blue), the plain default only a blank" || chk fail "icon color swatches missing"
