@@ -37,6 +37,10 @@ def slot_colors(S, roles, variant):
     fg = T.get('foreground', R['fg']); c['Foreground'] = fg
     c['Background'] = T.get('background', R['bg_deep'])
     c['Cursor'] = T.get('cursor', fg)
+    # terminal-only extras (a scheme that needs them lists them in [<variant>.terminal]; the defaults are the long-standing rules)
+    c['CursorText'] = T.get('cursor_text', c['Background'])
+    c['SelectionBackground'] = T.get('selection', R['selection'])
+    c['SelectionForeground'] = T.get('selection_text', fg)
     c['Color0'] = T.get('black', R['surface'])
     for i, n in enumerate(NAMES):
         c['Color%d' % (i + 1)] = A[n]
