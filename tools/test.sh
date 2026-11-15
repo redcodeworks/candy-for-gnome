@@ -661,6 +661,19 @@ python3 -I tools/scheme-from-ptyxis.py zz-fake "Fake Night" >/dev/null 2>&1; gre
 python3 -I tools/scheme-from-ptyxis.py zz-two "Fake Night" "Fake Duo" >/dev/null 2>&1; grep -q '^bg_deep = "#fafafa"' zz-two/scheme.toml && grep -q '^bg_deep = "#101820"' zz-two/scheme.toml && grep -qx 'ptyxis = "Fake Night"' zz-two/scheme.toml && grep -qx 'ptyxis_light = "Fake Duo"' zz-two/scheme.toml && chk ok "a second id gives the light variant and ptyxis_light" || chk fail "light palette argument"
 rm -rf zz-fake zz-duo zz-two; unset PTYXIS_BIN
 # ptyxis-compare: a copy of everforest declares a built-in id; fixture built-ins are made from the scheme's own colours (a directory of <id>.palette files)
+# gruvbox-material dark brights differ from the built-in by decision (ptyxis_brights_differ): accepted, but ONLY Color8-15 of the dark variant
+GMB="$T/fix-gm"; mkdir -p "$GMB"   # a stand-in for the Ptyxis built-in (flat, dark only: every bright equals its standard colour), CI has no Ptyxis binary
+{ printf '[Palette]\nName=Gruvbox Material\nPrimary=true\nForeground=#D4BE98\nBackground=#282828\nCursor=#D4BE98\n'
+  i=0; for c in 3C3836 EA6962 A9B665 D8A657 7DAEA3 D3869B 89B482 D4BE98 3C3836 EA6962 A9B665 D8A657 7DAEA3 D3869B 89B482 D4BE98; do printf 'Color%d=#%s\n' "$i" "$c"; i=$((i+1)); done; } > "$GMB/Gruvbox Material.palette"
+gmc() { PTYXIS_BIN="$GMB" python3 -I tools/ptyxis-compare.py --check zz-gm 2>/dev/null; }
+rm -rf zz-gm; mkdir zz-gm; cp gruvbox-material/scheme.toml zz-gm/
+out=$(gmc); [ -z "$out" ] && chk ok "ptyxis-compare: the decided gruvbox-material brights are accepted (and the light variant, which has no built-in, is not compared)" || chk fail "ptyxis-compare rejects the decided brights: $out"
+sed -i '/^ptyxis_brights_differ/d' zz-gm/scheme.toml; gmc | grep -q "Color9 .* differs" && chk ok "ptyxis-compare: without ptyxis_brights_differ the brights are reported" || chk fail "brights not reported without the key"
+awk '/^\[dark.ansi\]/ {d=1} d && /^green = / && !x {sub(/#[0-9a-f]{6}/, "#a9b666"); x=1} {print}' gruvbox-material/scheme.toml > zz-gm/scheme.toml
+gmc | grep -q "Color2 .* differs" && chk ok "ptyxis-compare: any other difference of the scheme (a standard color) is still reported" || chk fail "other difference not reported"
+cp gruvbox-material/scheme.toml zz-gm/; sed -i '/^\[dark.terminal\]/,/^\[light.terminal\]/{s/^bright_red = .*/bright_red = "#ea6962"/; s/^bright_green = .*/bright_green = "#a9b665"/; s/^bright_yellow = .*/bright_yellow = "#d8a657"/; s/^bright_blue = .*/bright_blue = "#7daea3"/; s/^bright_magenta = .*/bright_magenta = "#d3869b"/; s/^bright_cyan = .*/bright_cyan = "#89b482"/; s/^bright_black = .*/bright_black = "#3c3836"/; s/^bright_white = .*/bright_white = "#d4be98"/}' zz-gm/scheme.toml
+gmc | grep -q "stale" && chk ok "ptyxis-compare: ptyxis_brights_differ with equal brights is reported as stale" || chk fail "stale brights key not reported"
+rm -rf zz-gm
 mkdir zz-ef && cp everforest/scheme.toml zz-ef/
 EVER="$T/fix-ever"; mkdir -p "$EVER"
 python3 -I - "$EVER" <<'PY'
