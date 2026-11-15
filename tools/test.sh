@@ -194,7 +194,7 @@ fi
 inv=$(python3 -I - <<'PY'
 import os, csv
 rows = list(csv.reader(open('tools/ptyxis-schemes.tsv', encoding='utf-8'), delimiter='\t'))[1:]
-have = {d for d in os.listdir('.') if os.path.exists(d + '/scheme.toml')}
+have = {d for d in os.listdir('themes') if os.path.exists('themes/' + d + '/scheme.toml')}
 ok = {r[0] for r in rows if r[3] in ('built', 'existing')}
 bad = [d + ' not in the inventory as built/existing' for d in sorted(have - ok)] + [r[0] + ' listed built/existing but has no folder' for r in rows if r[3] in ('built', 'existing') and r[0] not in have] + [r[0] + ' excluded but has a folder' for r in rows if r[3] == 'excluded' and r[0] in have]
 print('; '.join(bad))
@@ -313,9 +313,9 @@ def pal(path):
     t = open(path).read(); g = lambda k: re.search(r'^%s = (#[0-9a-f]{6})$' % k, t, re.M).group(1)
     return g('background'), g('foreground'), [re.search(r'^palette = %d=(#[0-9a-f]{6})$' % i, t, re.M).group(1) for i in range(16)]
 for s in ('gruvbox-material', 'dracula', 'nordic', 'solarized'):
-    S, roles, _ = sr.load(s)
+    S, roles, _ = sr.load('themes/' + s)
     for v in ('dark', 'light'):
-        f = '%s/ghostty/candy-for-gnome-%s-%s' % (s, s, v)
+        f = 'themes/%s/ghostty/candy-for-gnome-%s-%s' % (s, s, v)
         if v not in roles:
             if os.path.exists(f): bad.append('%s has a %s file but no %s variant' % (s, v, v))
             continue
@@ -324,8 +324,8 @@ for s in ('gruvbox-material', 'dracula', 'nordic', 'solarized'):
         bg, fg, p = pal(f)
         if bg != c['Background'].lower() or fg != c['Foreground'].lower() or p != [c['Color%d' % i].lower() for i in range(16)]: bad.append('%s %s differs from the Ptyxis-derived colours' % (s, v))
         if not open(f).read().startswith('# candy-for-gnome: %s\n' % s): bad.append(f + ': marker')
-S, roles, _ = sr.load('solarized')
-if pal('solarized/ghostty/candy-for-gnome-solarized-dark')[1] != '#839496' or roles['dark']['fg'].lower() == '#839496': bad.append('solarized dark: nudge not reverted to the built-in foreground')
+S, roles, _ = sr.load('themes/solarized')
+if pal('themes/solarized/ghostty/candy-for-gnome-solarized-dark')[1] != '#839496' or roles['dark']['fg'].lower() == '#839496': bad.append('solarized dark: nudge not reverted to the built-in foreground')
 if open('themes/nordic/ghostty/nordic.conf').read().split('\n')[1] != 'theme = dark:candy-for-gnome-nordic-dark,light:candy-for-gnome-nordic-dark': bad.append('nordic.conf (dark-only) pair line')
 if open('themes/dracula/ghostty/dracula.conf').read().split('\n')[1] != 'theme = dark:candy-for-gnome-dracula-dark,light:candy-for-gnome-dracula-light': bad.append('dracula.conf pair line')
 print('\n'.join(bad)); sys.exit(1 if bad else 0)
@@ -487,7 +487,7 @@ grep -q "write /org/gnome/shell/extensions/user-theme/name" "$DLOG" && chk ok "s
 
 # ---- libadwaita file: no confirmation for our own files or when the backup of the original already exists ---------------------
 echo "=== libadwaita file replacement"
-first=$({ printf '%s\n' "${named[@]}"; echo "$all_schemes"; } | grep -vx '' | head -n1 | awk '{print $1}'); D="$T/themes-la"; CFGLA="$T/cfg-la"; mkdir -p "$CFGLA/gtk-4.0"; accs=$(grep -v '^#' "$first/accents/list" | awk 'NF {print $1}')
+first=$({ printf '%s\n' "${named[@]}"; echo "$all_schemes"; } | grep -vx '' | head -n1 | awk '{print $1}'); D="$T/themes-la"; CFGLA="$T/cfg-la"; mkdir -p "$CFGLA/gtk-4.0"; accs=$(grep -v '^#' "themes/$first/accents/list" | awk 'NF {print $1}')
 a1=$(echo "$accs" | sed -n 1p); a2=$(echo "$accs" | sed -n 2p)
 THEMES_DEST=$D just install-theme "$first" >/dev/null 2>&1
 sw() { XDG_CONFIG_HOME="$CFGLA" THEMES_DEST=$D just switch-theme "$first" "$1" 2>&1 </dev/null; }
@@ -552,8 +552,8 @@ cat > "$T/gsvcheck.py" <<'PY'
 import sys, re, glob, os, xml.etree.ElementTree as ET
 sys.path.insert(0, 'tools'); import schemeroles as sr
 bad = []
-for f in sorted(f for s in os.environ['SCHEMES'].split() for f in glob.glob(s + '/gtksourceview/*.xml')):
-    scheme = f.split('/')[0]
+for f in sorted(f for s in os.environ['SCHEMES'].split() for f in glob.glob('themes/' + s + '/gtksourceview/*.xml')):
+    scheme = f.split('/')[1]
     try: root = ET.parse(f).getroot()
     except ET.ParseError as e: bad.append('%s: %s' % (f, e)); continue
     sid = root.get('id'); name = root.get('_name') or root.get('name')
@@ -563,7 +563,7 @@ for f in sorted(f for s in os.environ['SCHEMES'].split() for f in glob.glob(s + 
     meta = {p.get('name'): p.text for p in root.iter('property')}
     if meta.get('variant') not in ('dark', 'light'): bad.append(f + ': variant')
     for k in ('light-variant', 'dark-variant'):
-        if k in meta and not os.path.exists('%s/gtksourceview/%s.xml' % (scheme, meta[k])): bad.append('%s: %s %s does not resolve' % (f, k, meta[k]))
+        if k in meta and not os.path.exists('themes/%s/gtksourceview/%s.xml' % (scheme, meta[k])): bad.append('%s: %s %s does not resolve' % (f, k, meta[k]))
     def val(v): return cols.get(v) if not v.startswith('#') else v
     B, CL = val('bg-deep'), val('bg')
     for s in root.iter('style'):
@@ -584,8 +584,8 @@ out=$(python3 -I "$T/gsvcheck.py" 2>&1) && chk ok "style schemes: XML parses, id
 if python3 -c "import gi; gi.require_version('GtkSource','5')" 2>/dev/null; then
     out=$(python3 -I - <<'PY' 2>&1
 import gi, glob, os; gi.require_version('GtkSource', '5'); from gi.repository import GtkSource
-m = GtkSource.StyleSchemeManager.new(); m.set_search_path([os.path.abspath(s + '/gtksourceview') for s in os.environ['SCHEMES'].split()])
-miss = [os.path.basename(f)[:-4] for f in (f for s in os.environ['SCHEMES'].split() for f in glob.glob(s + '/gtksourceview/*.xml')) if not m.get_scheme(os.path.basename(f)[:-4])]
+m = GtkSource.StyleSchemeManager.new(); m.set_search_path([os.path.abspath('themes/' + s + '/gtksourceview') for s in os.environ['SCHEMES'].split()])
+miss = [os.path.basename(f)[:-4] for f in (f for s in os.environ['SCHEMES'].split() for f in glob.glob('themes/' + s + '/gtksourceview/*.xml')) if not m.get_scheme(os.path.basename(f)[:-4])]
 print(miss); raise SystemExit(1 if miss else 0)
 PY
 ) && chk ok "GtkSourceView itself loads every generated style scheme" || { chk fail "GtkSourceView could not load: $out"; }
