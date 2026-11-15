@@ -48,10 +48,10 @@
 # Message emojis, the one place (also covers tools/apps.sh, which is sourced): a function named echo wraps the builtin. With ONE argument that
 # starts with a known message prefix it puts one emoji and a space in front, but only when the stream the line goes to (fd 1 here, so
 # `>&2` lines test stderr, and captured output, files and pipes are never a terminal) is a terminal, TERM is not dumb or empty, and neither
-# CANDY_PLAIN (non-empty, not 0) nor NO_EMOJI (set, any value) says no. The text after the emoji is never changed, so data lines (no match)
+# CANDY_PLAIN (non-empty, not 0) nor NO_EMOJI (non-empty, as for NO_COLOR) says no. The text after the emoji is never changed, so data lines (no match)
 # stay as they are. CANDY_FORCE_EMOJI=1 skips the terminal test and exists only for tools/test.sh.
 echo() {
-    if [ "$#" -ne 1 ] || { [ ! -t 1 ] && [ "${CANDY_FORCE_EMOJI:-}" != 1 ]; } || [ -n "${NO_EMOJI+x}" ] \
+    if [ "$#" -ne 1 ] || { [ ! -t 1 ] && [ "${CANDY_FORCE_EMOJI:-}" != 1 ]; } || [ -n "${NO_EMOJI:-}" ] \
        || { [ -n "${CANDY_PLAIN:-}" ] && [ "$CANDY_PLAIN" != 0 ]; } || [ -z "${TERM:-}" ] || [ "$TERM" = dumb ]; then builtin echo "$@"; return; fi
     local e=""
     case "$1" in
