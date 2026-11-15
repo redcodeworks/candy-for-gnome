@@ -282,9 +282,15 @@ echo stale > "$G/Dracula/stale.txt"; out=$(THEMES_DEST=$G just install-theme dra
 L="$T/guard-legacy"; mkdir -p "$L"; cp -a dracula/themes/Dracula "$L/Dracula"; echo stale > "$L/Dracula/stale.txt"
 out=$(THEMES_DEST=$L just install-theme dracula </dev/null 2>&1)
 [ ! -e "$L/Dracula/stale.txt" ] && [ -f "$L/Dracula/.candy-for-gnome" ] && ! printf '%s\n' "$out" | grep -q "not installed by" && chk ok "a pre-marker installation (identical index.theme) is adopted" || chk fail "legacy installation not adopted"
-O="$T/guard-oldname"; mkdir -p "$O"; cp -a dracula/themes/Dracula "$O/Dracula"; echo dracula > "$O/Dracula/.gnome-themes"; echo stale > "$O/Dracula/stale.txt"
+O="$T/guard-oldname"; mkdir -p "$O/Other" "$O/Dracula"; cp -a dracula/themes/Dracula/. "$O/Dracula/"; echo dracula > "$O/Dracula/.gnome-themes"; echo stale > "$O/Dracula/stale.txt"; echo x > "$O/Other/.gnome-themes"
 out=$(THEMES_DEST=$O just install-theme dracula </dev/null 2>&1)
-[ -f "$O/Dracula/stale.txt" ] && [ ! -f "$O/Dracula/.candy-for-gnome" ] && [ "$(printf '%s\n' "$out" | grep -c 'installed under the old project name')" = 1 ] && chk ok "old-name marker: folder not adopted, one leftover message" || chk fail "old-name marker folder was adopted or message count wrong"
+[ ! -e "$O/Dracula/stale.txt" ] && [ ! -e "$O/Dracula/.gnome-themes" ] && grep -qx 'schema=1' "$O/Dracula/.candy-for-gnome" && grep -q '^installed_at=' "$O/Dracula/.candy-for-gnome" && ! printf '%s\n' "$out" | grep -qi 'refused\|old project\|leftover\|not installed by' && chk ok "old-name marker: a same-named folder is replaced on install, adopted with the new marker, no question and no message" || chk fail "old-marker folder not replaced/adopted: $out"
+[ -f "$O/Other/.gnome-themes" ] && [ ! -e "$O/Other/.candy-for-gnome" ] && ! printf '%s\n' "$out" | grep -q 'Other' && chk ok "old-name marker: an old-marker folder that matches nothing is left alone and not mentioned" || chk fail "unmatched old-marker folder touched or mentioned"
+rm -f "$O/Dracula/.candy-for-gnome"; echo dracula > "$O/Dracula/.gnome-themes"; echo stale > "$O/Dracula/stale.txt"
+THEMES_DEST=$O just update-theme </dev/null >/dev/null 2>&1
+[ ! -e "$O/Dracula/stale.txt" ] && [ ! -e "$O/Dracula/.gnome-themes" ] && grep -qx 'schema=1' "$O/Dracula/.candy-for-gnome" && chk ok "old-name marker: update-theme replaces an old-marker folder of an installed-by-name scheme and adopts it" || chk fail "update-theme did not adopt the old-marker folder"
+rm -f "$O/Dracula/.candy-for-gnome"; echo dracula > "$O/Dracula/.gnome-themes"; echo stale > "$O/Dracula/stale.txt"
+out=$(THEMES_DEST=$O just remove-theme dracula </dev/null 2>&1); [ -f "$O/Dracula/stale.txt" ] && chk ok "old-name marker: remove-theme still leaves an old-marker folder alone" || chk fail "remove-theme removed an old-marker folder"
 if command -v script >/dev/null 2>&1; then
     I="$T/guard-ask"; mkdir -p "$I/Dracula"; echo mine > "$I/Dracula/mine.txt"
     printf 'n\n' | script -qec "THEMES_DEST=$I tools/themectl.sh themes install dracula" /dev/null >/dev/null 2>&1
@@ -808,6 +814,8 @@ out=$(printf '\n' | just install-icon 2>&1); ! printf '%s\n' "$out" | grep -q '\
 : > "$LOG"; just switch-icon Fake-Dark >/dev/null 2>&1; grep -q "icon-theme Fake-Dark" "$LOG" && chk ok "switch-icon" || chk fail "switch-icon"
 (cd "$T/icons-src" && echo y > Fake-Dark/apps/b.svg && git add -A && git commit -q -m more)
 just update-icon >/dev/null 2>&1; [ -f "$ICONS_DEST/Fake-Dark/apps/b.svg" ] && chk ok "update-icon picks up the new upstream commit" || chk fail "update-icon"
+just install-icon Fake-Dark </dev/null >/dev/null 2>&1; rm -f "$ICONS_DEST/Fake-Dark/.candy-for-gnome"; echo Fake-Dark > "$ICONS_DEST/Fake-Dark/.gnome-themes"; echo stale > "$ICONS_DEST/Fake-Dark/stale.txt"
+just update-icon </dev/null >/dev/null 2>&1; [ ! -e "$ICONS_DEST/Fake-Dark/stale.txt" ] && [ ! -e "$ICONS_DEST/Fake-Dark/.gnome-themes" ] && grep -qx 'schema=1' "$ICONS_DEST/Fake-Dark/.candy-for-gnome" && chk ok "old-name marker: update-icon replaces an old-marker icon folder and adopts it" || chk fail "update-icon did not adopt the old-marker folder"
 just remove-icon Fake-Dark >/dev/null 2>&1; [ ! -d "$ICONS_DEST/Fake-Dark" ] && chk ok "remove-icon" || chk fail "remove-icon"
 
 # collision guard (icons): an unrelated Fake-Light is left alone, a pre-marker copy of Fake-Dark is adopted
