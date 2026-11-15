@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Self-test of a generated scheme (development; `just test <scheme>`). Needs python3-gobject, GTK 3, GTK 4, gnome-shell.
 
-  python3 -I tools/selftest.py <scheme> [contrast|gtk3|gtk4|shell|all]
+  python3 -I tools/selftest.py <scheme> [contrast|gtk3|gtk4|shell|ghostty|apps|palette|all]
 
 contrast : WCAG ratios from palette.toml (fg on window and view, dim text, text on each accent (the six terminal colours, plus orange), warning text)
 gtk3/gtk4/shell (each in its own process, the toolkits cannot share one):
@@ -208,6 +208,28 @@ def ghostty():
         else: ok(len(re.findall(r'^palette = \d+=#[0-9a-f]{6}$', t, re.M)) == 16, 'ghostty: %s has 16 palette entries' % n)
 
 
+# ---- palette pictures: committed SVGs equal the generator's output, parse, 16 hex and 16 index labels, text readable ---------------------------------
+def palette_svg():
+    import importlib.util, xml.etree.ElementTree as ET
+    sp = importlib.util.spec_from_file_location('palette_svg_gen', os.path.join(HERE, 'palette-svg-gen.py')); pg = importlib.util.module_from_spec(sp); sp.loader.exec_module(pg)
+    _, files = pg.build(D)
+    have = sorted(f for f in os.listdir(D) if f.startswith('palette-') and f.endswith('.svg'))
+    ok(have == sorted(files), 'palette svg: files present are exactly %s (found %s)' % (sorted(files), have))
+    ns = '{http://www.w3.org/2000/svg}'
+    for n, t in files.items():
+        p = '%s/%s' % (D, n)
+        ok(os.path.exists(p) and open(p).read() == t, 'palette svg: %s is current (run `just generate %s` when stale)' % (n, scheme))
+        try: root = ET.fromstring(t)
+        except ET.ParseError as e: ok(False, 'palette svg: %s parses as XML (%s)' % (n, e)); continue
+        texts = [(e.text, e.get('fill')) for e in root.iter(ns + 'text')]
+        hexes = [x for x in texts if re.fullmatch(r'#[0-9A-F]{6}', x[0] or '')]
+        idx = [x for x in texts if re.fullmatch(r'\d{1,2}', x[0] or '')]
+        ok(len(hexes) == 16 and sorted(int(x[0]) for x in idx) == list(range(16)), 'palette svg: %s has 16 hex labels and 16 index labels' % n)
+        fills = [r.get('fill') for r in root.iter(ns + 'rect')][1:]
+        worst = min(cr(f, h[1]) for f, h in zip(fills, [x for pair in zip(idx, hexes) for x in pair][1::2]) ) if len(fills) == 16 else 0
+        ok(worst >= 4.5, 'palette svg: %s text is at least 4.5:1 on every square (worst %.2f)' % (n, worst))
+        ok(root.find(ns + 'title') is not None and 'http' not in t.replace('http://www.w3.org/2000/svg', ''), 'palette svg: %s has a title and no external reference' % n)
+
 # ---- per-application themes (Alacritty, Helix, Yazi, kitty, bat, eza, zellij, Claude Code): committed files equal the generators' output ----------
 APPS = ('alacritty', 'helix', 'yazi', 'kitty', 'bat', 'eza', 'zellij', 'claude')
 def apps():
@@ -248,13 +270,14 @@ def apps():
 if mode == 'contrast': contrast()
 elif mode == 'ghostty': ghostty(); sys.exit(1 if FAIL else 0)
 elif mode == 'apps': apps(); sys.exit(1 if FAIL else 0)
+elif mode == 'palette': palette_svg(); sys.exit(1 if FAIL else 0)
 elif mode in ('gtk3', 'gtk4', 'shell'):
     if mode == 'shell':
         import glob as g
         mut = g.glob('/usr/lib64/mutter-*')[0]; os.environ['GI_TYPELIB_PATH'] = '/usr/lib64/gnome-shell:' + mut
     toolkit(mode); sys.exit(1 if FAIL else 0)
 else:
-    contrast(); ghostty(); apps(); rc = 0
+    contrast(); ghostty(); palette_svg(); apps(); rc = 0
     for k in ('gtk3', 'gtk4', 'shell'):
         env = dict(os.environ)
         if k == 'shell':

@@ -61,6 +61,42 @@ palettes come from the built-in Ptyxis terminal palettes, so the terminal, the a
 Icon sets: Papirus, Gruvbox Plus, Zafiro, candy, Tela, Fluent, Conflux and WhiteSur (all nine colors; sources in `tools/icon-sources.conf`).
 `switch-theme` also selects the matching Ptyxis built-in palette (the light or dark one, by the system setting, for schemes that have two) and the Text Editor color scheme.
 
+## Palettes
+
+The terminal colors of the featured themes (the other themes have the same picture in their folder, `<theme>/palette-dark.svg`):
+
+**nordic**
+
+<img src="nordic/palette-dark.svg" alt="nordic dark palette" width="400">
+
+**gruvbox-material**
+
+<img src="gruvbox-material/palette-dark.svg" alt="gruvbox-material dark palette" width="400"> <img src="gruvbox-material/palette-light.svg" alt="gruvbox-material light palette" width="400">
+
+**everforest**
+
+<img src="everforest/palette-dark.svg" alt="everforest dark palette" width="400"> <img src="everforest/palette-light.svg" alt="everforest light palette" width="400">
+
+**tokyo-night**
+
+<img src="tokyo-night/palette-dark.svg" alt="tokyo-night dark palette" width="400"> <img src="tokyo-night/palette-light.svg" alt="tokyo-night light palette" width="400">
+
+**dracula**
+
+<img src="dracula/palette-dark.svg" alt="dracula dark palette" width="400"> <img src="dracula/palette-light.svg" alt="dracula light palette" width="400">
+
+**fairy-floss**
+
+<img src="fairy-floss/palette-dark.svg" alt="fairy-floss dark palette" width="400">
+
+**catppuccin**
+
+<img src="catppuccin/palette-dark.svg" alt="catppuccin dark palette" width="400"> <img src="catppuccin/palette-light.svg" alt="catppuccin light palette" width="400">
+
+**aubergine**
+
+<img src="aubergine/palette-dark.svg" alt="aubergine dark palette" width="400">
+
 ## Ghostty
 
 If you use the Ghostty terminal and have a `~/.config/ghostty` folder, `switch-theme` also sets a matching
@@ -107,7 +143,7 @@ the grant is undone when you remove the last theme and icon set. Nothing is wide
 
 `main` is protected. Changes go on a feature branch, into `testing` by pull request, and from `testing` into
 `main` by pull request; CI is the test.
-The contributor workflow and design notes are in `CLAUDE.md`.
+The contributor workflow and design notes are in `CLAUDE.md`. The palette pictures are generated: run `just generate <theme>` after changing a palette.
 
 ## License and credits
 
