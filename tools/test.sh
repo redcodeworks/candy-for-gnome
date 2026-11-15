@@ -65,6 +65,7 @@ case "$1" in
 esac
 SH
 chmod +x "$T/bin/dconf"
+export CANDY_PLAIN=1   # the pty tests read the text of the messages: emojis stay off unless the emoji tests unset this themselves
 export THEMES_PICKER=builtin THEMES_SWITCH_AFTER_INSTALL=0   # tests choose the picker explicitly (a developer machine may have gum) and enable the switch menu after an install only in their own pty tests
 export PTYXIS_PALETTES="$T/ptyxis-palettes" GTKSOURCEVIEW_STYLES="$T/gsv-styles" FLATPAK_APPS="$T/var-app"
 export CANDY_FOR_GNOME_BREW_BIN="$T/nobrew" CANDY_FOR_GNOME_APPS_PATH="$T/noapps"   # no Homebrew bin dir and no PATH search (the container may ship bat): the per-app themes see only what a test points the knobs at
@@ -793,6 +794,82 @@ cp -a "$T/icons-src/Fake-Dark" "$ICONS_DEST/Fake-Dark"; rm -rf "$ICONS_DEST/Fake
 just install-icon Fake-Dark </dev/null >/dev/null 2>&1; [ ! -e "$ICONS_DEST/Fake-Dark/stale.txt" ] && [ -f "$ICONS_DEST/Fake-Dark/.candy-for-gnome" ] && chk ok "icons: a pre-marker installation is adopted" || chk fail "icons: legacy not adopted"
 just remove-icon Fake-Dark </dev/null >/dev/null 2>&1; just remove-icon Fake-Light </dev/null >/dev/null 2>&1
 
+# root layout (Conflux): the repo root is the set; top-level @2x symlinks stay relative links, upstream scripts and docs stay out
+mkdir -p "$T/icons-root" && (cd "$T/icons-root" && git init -q && mkdir -p apps images .github && printf '[Icon Theme]\nName=Rooty\nInherits=hicolor,Adwaita\nDirectories=apps\n' > index.theme \
+    && echo x > apps/a.svg && echo x > images/shot.png && echo x > preview.png && echo r > README.md && echo l > LICENSE && echo c > CREDITS.md && echo c > CONTRIBUTING.md && echo g > .gitignore \
+    && printf '#!/bin/sh\ntouch "$0.ran"\n' > update.sh && chmod +x update.sh && ln -s apps 'apps@2x' && git add -A && git commit -q -m init)
+printf 'rooty|file://%s/icons-root|root|Rooty\n' "$T" > "$T/root.conf"
+out=$(ICON_SOURCES="$T/root.conf" just install-icon Rooty 2>&1); R="$ICONS_DEST/Rooty"
+[ -f "$R/index.theme" ] && [ -f "$R/apps/a.svg" ] && [ -f "$R/.candy-for-gnome" ] && ! printf '%s\n' "$out" | grep -q '^warning:' && chk ok "root layout: the repo root is installed as the set, marked, no registry warning" || chk fail "root layout install"
+[ -L "$R/apps@2x" ] && [ "$(readlink "$R/apps@2x")" = apps ] && [ -f "$R/apps@2x/a.svg" ] && chk ok "root layout: top-level @2x symlinks stay relative symlinks" || chk fail "root layout: symlink lost"
+[ -f "$R/LICENSE" ] && [ -f "$R/CREDITS.md" ] && [ ! -e "$R/update.sh" ] && [ ! -e "$R/images" ] && [ ! -e "$R/preview.png" ] && [ ! -e "$R/README.md" ] && [ ! -e "$R/CONTRIBUTING.md" ] && [ ! -e "$R/.gitignore" ] && [ ! -e "$R/.git" ] && [ ! -e "$R/.github" ] && [ ! -e "$T/cache/icons/rooty/update.sh.ran" ] && chk ok "root layout: LICENSE and CREDITS kept; update.sh, images, previews, docs and git files left out, update.sh never run" || chk fail "root layout: wrong file set ($(ls -A "$R" | tr '\n' ' '))"
+mkdir -p "$T/icons-tp"; ICONS_DEST="$T/icons-tp"; mkdir -p "$ICONS_DEST/Rooty"; echo mine > "$ICONS_DEST/Rooty/mine.txt"
+ICON_SOURCES="$T/root.conf" just install-icon Rooty </dev/null >/dev/null 2>&1; ICON_SOURCES="$T/root.conf" just remove-icon Rooty </dev/null >/dev/null 2>&1
+[ -f "$ICONS_DEST/Rooty/mine.txt" ] && chk ok "root layout: a same-named third-party folder is left alone" || chk fail "root layout: third-party folder touched"
+ICONS_DEST="$T/icons"; ICON_SOURCES="$T/root.conf" just remove-icon Rooty >/dev/null 2>&1; [ ! -e "$R" ] && chk ok "root layout: remove-icon removes the marked copy" || chk fail "root layout: remove"
+# script-t layout (WhiteSur): a fake install.sh that takes -d DIR -n NAME -t VARIANT, builds <name><variant>{,-light,-dark} and links the
+# light/dark folders to the base one; a bare variant, -t all and -a/-b/-p must never be passed
+mkdir -p "$T/icons-ws" && (cd "$T/icons-ws" && git init -q && cat > install.sh <<'WSE'
+#!/usr/bin/env bash
+set -eo pipefail
+echo "$*" >> "$(dirname "$0")/args.log"
+dest=; name=WhiteSur; theme=; V=('' -purple -pink -red -orange -yellow -green -grey -nord)
+while [ "$#" -gt 0 ]; do case "$1" in
+    -d) dest="$2"; shift 2 ;; -n) name="$2"; shift 2 ;;
+    -t) shift; case "$1" in
+        default) theme="${V[0]}" ;;
+        purple) theme="${V[1]}" ;;
+        pink) theme="${V[2]}" ;;
+        red) theme="${V[3]}" ;;
+        orange) theme="${V[4]}" ;;
+        yellow) theme="${V[5]}" ;;
+        green) theme="${V[6]}" ;;
+        grey) theme="${V[7]}" ;;
+        nord) theme="${V[8]}" ;;
+        *) echo "bad variant $1"; exit 1 ;; esac; shift ;;
+    *) echo "ERROR: Unrecognized installation option '$1'."; exit 1 ;; esac; done
+for c in '' -light -dark; do
+    d="$dest/$name$theme$c"; mkdir -p "$d/apps"; printf '[Icon Theme]\nName=%s\nDirectories=apps\n' "$name$theme$c" > "$d/index.theme"
+    if [ -z "$c" ]; then echo x > "$d/apps/a.svg"; else ln -s "../../$name$theme/apps/a.svg" "$d/apps/a.svg"; fi
+done
+WSE
+    chmod +x install.sh && git add -A && git commit -q -m init)
+V9="standard purple pink red orange yellow green grey nord"
+printf 'WhiteSur|file://%s/icons-ws|script-t|%s\n' "$T" "$V9" > "$T/ws.conf"
+WSD="$T/icons-wsd"; mkdir -p "$WSD"; rm -rf "$T/cache/icons/WhiteSur"
+out=$(ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just list-icons 2>&1)
+[ "$(printf '%s\n' "$out" | grep -c 'WhiteSur')" -eq 9 ] && printf '%s\n' "$out" | grep -q 'WhiteSur-nord' && [ ! -e "$T/cache/icons/WhiteSur" ] && chk ok "script-t: list-icons shows the nine WhiteSur sets from the registry without cloning" || chk fail "script-t: list-icons ($(printf '%s' "$out" | grep -c WhiteSur))"
+out=$(ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just install-icon WhiteSur 2>&1)
+WA="$T/cache/icons/WhiteSur/args.log"
+[ -d "$WSD/WhiteSur" ] && [ -d "$WSD/WhiteSur-dark" ] && [ -d "$WSD/WhiteSur-light" ] && [ ! -e "$WSD/WhiteSur-purple" ] && [ -f "$WSD/WhiteSur-dark/.candy-for-gnome" ] && chk ok "script-t: the standard set is the three folders, marked, and no other variant" || chk fail "script-t: standard install ($out)"
+[ -f "$WSD/WhiteSur-dark/apps/a.svg" ] && [ -L "$WSD/WhiteSur-dark/apps/a.svg" ] && chk ok "script-t: the dark and light folders keep their relative links to the base folder" || chk fail "script-t: links lost"
+grep -Eq -- '^-d /.* -n WhiteSur -t default$' "$WA" && ! grep -Eq -- ' -t all| -a| -b| -p' "$WA" && chk ok "script-t: standard runs -t default with -n WhiteSur in a temp dir, never -t all, -a, -b or -p" || chk fail "script-t: arguments ($(cat "$WA" 2>/dev/null))"
+ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just install-icon WhiteSur-nord >/dev/null 2>&1
+n=0; for f in WhiteSur WhiteSur-dark WhiteSur-light WhiteSur-nord WhiteSur-nord-dark WhiteSur-nord-light; do [ -d "$WSD/$f" ] && n=$((n+1)); done
+tail -1 "$WA" | grep -Eq -- ' -n WhiteSur -t nord$' && [ "$n" -eq 6 ] && chk ok "script-t: a color variant installs next to the standard set (-t nord)" || chk fail "script-t: nord ($n)"
+ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just remove-icon WhiteSur >/dev/null 2>&1
+[ ! -e "$WSD/WhiteSur" ] && [ ! -e "$WSD/WhiteSur-light" ] && [ -d "$WSD/WhiteSur-nord" ] && [ -d "$WSD/WhiteSur-nord-dark" ] && chk ok "script-t: remove-icon WhiteSur removes its three folders and keeps WhiteSur-nord" || chk fail "script-t: remove"
+out=$(ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just remove-icon WhiteSur-nord 2>&1); [ -z "$(ls -A "$WSD")" ] && ! printf '%s\n' "$out" | grep -q 'Refused' && chk ok "script-t: remove-icon WhiteSur-nord leaves nothing behind" || chk fail "script-t: leftovers ($(ls -A "$WSD"))"
+mkdir -p "$WSD/WhiteSur-dark"; echo mine > "$WSD/WhiteSur-dark/mine.txt"
+ICON_SOURCES="$T/ws.conf" ICONS_DEST="$WSD" just install-icon WhiteSur </dev/null >/dev/null 2>&1
+[ -f "$WSD/WhiteSur-dark/mine.txt" ] && [ ! -e "$WSD/WhiteSur-dark/.candy-for-gnome" ] && chk ok "script-t: a same-named third-party folder is left alone without a terminal" || chk fail "script-t: third-party folder touched"
+rm -rf "${WSD:?}"/*
+# verify_source: a registry variant missing from install.sh and a missing install.sh are warned about, never fatal
+printf 'WhiteSur|file://%s/icons-ws|script-t|%s teal\n' "$T" "$V9" > "$T/ws2.conf"; rm -rf "$T/cache/icons/WhiteSur"
+out=$(ICON_SOURCES="$T/ws2.conf" ICONS_DEST="$WSD" just install-icon WhiteSur 2>&1)
+printf '%s\n' "$out" | grep -q 'warning: WhiteSur: registry says teal, upstream has no teal' && [ -d "$WSD/WhiteSur" ] && ! printf '%s\n' "$out" | grep -q 'registry says purple' && chk ok "script-t: verify_source warns about a variant install.sh lacks, and the install still works" || chk fail "script-t: verify_source ($out)"
+rm -rf "${WSD:?}"/* "$T/cache/icons/WhiteSur"
+# the shipped registry declares WhiteSur with the nine colors
+reg=$(grep '^WhiteSur|' tools/icon-sources.conf)
+[ "$reg" = "WhiteSur|https://github.com/vinceliuice/WhiteSur-icon-theme.git|script-t|$V9" ] && chk ok "registry: the WhiteSur line (script-t, nine colors)" || chk fail "registry: WhiteSur line ($reg)"
+out=$(ICON_SOURCES="$PWD/tools/icon-sources.conf" CANDY_FOR_GNOME_CACHE="$T/cache2" just list-icons 2>&1)
+[ "$(printf '%s\n' "$out" | grep -c 'WhiteSur')" -eq 9 ] && [ ! -e "$T/cache2/icons" ] && chk ok "list-icons with the shipped registry shows the nine WhiteSur sets without cloning" || chk fail "list-icons lacks WhiteSur"
+# the shipped registry declares Conflux as a root source and every icon command knows it without a clone
+reg=$(grep '^conflux|' tools/icon-sources.conf)
+[ "$reg" = "conflux|https://github.com/MoshiurRahmanAdib/Conflux-Icon-Theme.git|root|Conflux" ] && chk ok "registry: the conflux line (root layout, name Conflux)" || chk fail "registry: conflux line ($reg)"
+out=$(ICON_SOURCES="$PWD/tools/icon-sources.conf" CANDY_FOR_GNOME_CACHE="$T/cache2" just list-icons 2>&1)
+printf '%s\n' "$out" | grep -q 'Conflux' && [ ! -e "$T/cache2/icons" ] && chk ok "list-icons with the shipped registry shows Conflux without cloning" || chk fail "list-icons lacks Conflux"
+
 # ---- Flatpak access: grant after a y, record only what was added, undo only that ------------------------------------------------
 echo "=== flatpak access"
 FS="$T/themes-fp"; FI="$T/icons-fp"; fpst="$XDG_STATE_HOME/candy-for-gnome/flatpak-overrides"; rm -f "$fpst"
@@ -908,6 +985,47 @@ firsts=$(grep -E '^[A-Za-z-]+  \(' "$STUB_LOG" | head -2 | sed 's/  (.*//' | tr 
 rm -f "$STUB_LOG"; out=$(GUM_STUB_EXIT=130 ICONS_DEST=$IP gumpty tools/themectl.sh icons install Fake-Light | tr -d '\r')
 printf '%s' "$out" | grep -q "To switch later: just switch-icon Fake-Light" && chk ok "icons: Esc skips and prints just switch-icon NAME" || chk fail "icon cancel: $(printf '%s' "$out" | tail -3)"
 rm -rf "$AP" "$IP"
+
+# ---- message emojis (terminal only; CANDY_FORCE_EMOJI exists for this test) ------------------------------------------------------------------
+echo "=== message emojis"
+EMO=(✅ 🎨 🔄 ❗ 🧹 ❌ 🟡 🔁)
+has_emoji() { local e; for e in "${EMO[@]}"; do case "$1" in *"$e"*) return 0 ;; esac; done; return 1; }
+strip_emoji() { local e s=""; for e in "${EMO[@]}"; do s="$s|$e"; done; sed -E "s/^(${s#|}) //"; }
+EM="$T/emoji-themes"
+emo_run() {   # emo_run <mode> : install, switch (explicit accent), remove of nordic from a clean state; mode plain|force|<env words>
+    rm -rf "$EM" "$XDG_CONFIG_HOME/gtk-4.0" "$XDG_STATE_HOME/candy-for-gnome"; mkdir -p "$XDG_CONFIG_HOME/gtk-4.0"
+    env "$@" THEMES_DEST="$EM" tools/themectl.sh themes install nordic </dev/null 2>&1
+    env "$@" THEMES_DEST="$EM" tools/themectl.sh themes switch nordic cyan </dev/null 2>&1
+    env "$@" THEMES_DEST="$EM" tools/themectl.sh themes switch nordic nosuchaccent </dev/null 2>&1
+    env "$@" THEMES_DEST="$EM" tools/themectl.sh themes remove nordic </dev/null 2>&1
+}
+plain_out=$(emo_run TERM=xterm-256color)          # CANDY_PLAIN=1 from the suite environment
+has_emoji "$plain_out" && chk fail "captured output (CANDY_PLAIN=1) contains an emoji" || chk ok "captured output has no emoji"
+cap_out=$(emo_run -u CANDY_PLAIN TERM=xterm-256color)   # captured, not a terminal, no force
+has_emoji "$cap_out" && chk fail "captured output (not a terminal) contains an emoji" || chk ok "output that is not a terminal has no emoji, even without CANDY_PLAIN"
+[ "$cap_out" = "$plain_out" ] && chk ok "captured output is identical with and without CANDY_PLAIN" || chk fail "captured output differs by CANDY_PLAIN"
+force_out=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 TERM=xterm-256color)
+has_emoji "$force_out" && chk ok "forced mode prints emojis" || chk fail "forced mode printed no emoji"
+[ "$(printf '%s\n' "$force_out" | strip_emoji)" = "$plain_out" ] && chk ok "with the emoji prefixes removed, the forced output equals the plain output byte for byte" || { chk fail "forced output text differs from plain"; diff <(printf '%s\n' "$force_out" | strip_emoji) <(printf '%s\n' "$plain_out") | head -8; }
+badn=$(printf '%s\n' "$force_out" | grep -c -E '^(✅|🎨|🔄|❗|🧹|❌|🟡|🔁) (✅|🎨|🔄|❗|🧹|❌|🟡|🔁)'); [ "$badn" -eq 0 ] && chk ok "never two emojis on one line" || chk fail "double emoji on $badn line(s)"
+for want in "✅ Installed Nordic-Nord" "🎨 GTK theme is now Nordic-Nord." "🎨 Accent: cyan." "🔁 Restart GTK apps to pick up the new theme." "🧹 Removed $EM/Nordic-Nord" "❌ 'nosuchaccent' is not an accent of nordic"; do
+    printf '%s\n' "$force_out" | grep -qF -- "$want" && chk ok "forced: '$want'" || chk fail "forced: missing '$want'"
+done
+printf '%s\n' "$force_out" | grep -E '^(✅|🎨|🔄|❗|🧹|❌|🟡|🔁) ' | grep -q 'Shell theme is now' && chk ok "forced: the Shell theme line carries 🎨" || chk fail "forced: Shell theme line"
+printf '%s\n' "$force_out" | grep -E '^ ' | grep -qE '(✅|🎨|🔄|❗|🧹|❌|🟡|🔁)' && chk fail "an indented continuation line carries an emoji" || chk ok "indented and data lines carry no emoji"
+off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 CANDY_PLAIN=1 TERM=xterm-256color); has_emoji "$off" && chk fail "CANDY_PLAIN=1 did not switch emojis off" || chk ok "CANDY_PLAIN=1 switches emojis off (even when forced)"
+off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI=1 TERM=xterm-256color); has_emoji "$off" && chk fail "NO_EMOJI=1 did not switch emojis off" || chk ok "NO_EMOJI switches emojis off"
+off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI= TERM=xterm-256color); has_emoji "$off" && chk fail "an empty NO_EMOJI did not switch emojis off" || chk ok "NO_EMOJI set to an empty value still switches emojis off"
+off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 TERM=dumb); has_emoji "$off" && chk fail "TERM=dumb did not switch emojis off" || chk ok "TERM=dumb switches emojis off"
+# a real pseudo-terminal: stdout is a terminal, so no force is needed; stderr lines are tested on their own stream
+rm -rf "$EM" "$XDG_CONFIG_HOME/gtk-4.0"; mkdir -p "$XDG_CONFIG_HOME/gtk-4.0"
+pty_out=$(env -u CANDY_PLAIN THEMES_DEST="$EM" TERM=xterm-256color script -qec "tools/themectl.sh themes install nordic" /dev/null </dev/null 2>&1 | tr -d '\r')
+printf '%s\n' "$pty_out" | grep -q '^✅ Installed Nordic-Nord' && chk ok "pty: stdout on a terminal gets the emoji without any force" || chk fail "pty: no emoji on a terminal: $(printf '%s' "$pty_out" | head -3)"
+pty_out=$(env -u CANDY_PLAIN THEMES_DEST="$EM" NO_EMOJI=1 TERM=xterm-256color script -qec "tools/themectl.sh themes install nordic" /dev/null </dev/null 2>&1 | tr -d '\r')
+has_emoji "$pty_out" && chk fail "pty: NO_EMOJI ignored on a terminal" || chk ok "pty: NO_EMOJI keeps a terminal plain"
+err_tty=$(env -u CANDY_PLAIN THEMES_DEST="$EM" TERM=xterm-256color bash -c 'tools/themectl.sh themes switch nordic nosuchaccent 2>&1 >/dev/null' </dev/null)
+has_emoji "$err_tty" && chk fail "stderr that is captured got an emoji" || chk ok "stderr that is not a terminal gets no emoji"
+rm -rf "$EM"
 
 echo; echo "TOTAL: $pass PASS, $fail FAIL"
 [ "$fail" -eq 0 ]

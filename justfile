@@ -33,7 +33,7 @@ remove-theme name="":
 switch-theme name="" accent="":
     @tools/themectl.sh themes switch "{{name}}" "{{accent}}"
 
-# Icons: sets of the repos in tools/icon-sources.conf (Papirus, Gruvbox Plus, Zafiro, candy, Tela, Fluent; ICONS_URL replaces the papirus URL), listed from the registry without cloning; the sources of the chosen sets are cloned into ~/.cache/candy-for-gnome/icons and the sets installed into ~/.local/share/icons (ICONS_DEST)
+# Icons: sets of the repos in tools/icon-sources.conf (Papirus, Gruvbox Plus, Zafiro, candy, Tela, Fluent, Conflux, WhiteSur; ICONS_URL replaces the papirus URL), listed from the registry without cloning; the sources of the chosen sets are cloned into ~/.cache/candy-for-gnome/icons and the sets installed into ~/.local/share/icons (ICONS_DEST)
 
 # List the available icon sets (a check mark = installed)
 [group('icons')]
