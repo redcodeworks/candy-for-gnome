@@ -30,7 +30,7 @@ Themes go to `~/.themes`, icons to `~/.local/share/icons`, as real copies. Check
 
 The icon menus are grouped: `switch-icon` first asks for the family (Adwaita, Papirus, Tela, WhiteSur, ...), then the color and the style (standard, dark, light) of the sets you installed; `install-icon` and `remove-icon` ask for families first and then the colors of each. A family or color with only one choice skips its step, and a name (`just switch-icon Tela-dark`, `just install-icon WhiteSur-nord`) skips every menu.
 
-On a terminal, key messages start with an emoji (✅ installed, 🎨 applied, 🔄 updated, 🧹 removed, ❗ something for you to do, 🟡 warning, ❌ error). Set `CANDY_PLAIN=1` or `NO_EMOJI=1` to switch them off; piped or captured output never has them.
+On a terminal, key messages start with an emoji (✅ installed, 🎨 applied, 🔄 updated, 🧹 removed, ❗ something for you to do, 🟡 warning, ❌ error). Set `CANDY_PLAIN=1` or `NO_EMOJI=1` (any non-empty value, like `NO_COLOR`; the same switch turns them off in the image's `ujust` recipes) to switch them off; piped or captured output never has them.
 
 | Themes | Icons | |
 |---|---|---|

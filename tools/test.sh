@@ -1112,8 +1112,8 @@ done
 printf '%s\n' "$force_out" | grep -E '^(✅|🎨|🔄|❗|🧹|❌|🟡|🔁) ' | grep -q 'Shell theme is now' && chk ok "forced: the Shell theme line carries 🎨" || chk fail "forced: Shell theme line"
 printf '%s\n' "$force_out" | grep -E '^ ' | grep -qE '(✅|🎨|🔄|❗|🧹|❌|🟡|🔁)' && chk fail "an indented continuation line carries an emoji" || chk ok "indented and data lines carry no emoji"
 off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 CANDY_PLAIN=1 TERM=xterm-256color); has_emoji "$off" && chk fail "CANDY_PLAIN=1 did not switch emojis off" || chk ok "CANDY_PLAIN=1 switches emojis off (even when forced)"
-off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI=1 TERM=xterm-256color); has_emoji "$off" && chk fail "NO_EMOJI=1 did not switch emojis off" || chk ok "NO_EMOJI switches emojis off"
-off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI= TERM=xterm-256color); has_emoji "$off" && chk fail "an empty NO_EMOJI did not switch emojis off" || chk ok "NO_EMOJI set to an empty value still switches emojis off"
+off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI=1 TERM=xterm-256color); has_emoji "$off" && chk fail "NO_EMOJI=1 did not switch emojis off" || chk ok "a non-empty NO_EMOJI switches emojis off"
+off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI= TERM=xterm-256color); has_emoji "$off" && chk ok "an empty NO_EMOJI keeps the emojis (non-empty only, as NO_COLOR)" || chk fail "an empty NO_EMOJI switched emojis off"
 off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 TERM=dumb); has_emoji "$off" && chk fail "TERM=dumb did not switch emojis off" || chk ok "TERM=dumb switches emojis off"
 # a real pseudo-terminal: stdout is a terminal, so no force is needed; stderr lines are tested on their own stream
 rm -rf "$EM" "$XDG_CONFIG_HOME/gtk-4.0"; mkdir -p "$XDG_CONFIG_HOME/gtk-4.0"
