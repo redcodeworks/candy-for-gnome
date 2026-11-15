@@ -67,6 +67,7 @@ case "$1" in
 esac
 SH
 chmod +x "$T/bin/dconf"
+unset COLORTERM; export NO_COLOR=1   # no swatches in the pty tests that read the picker text (the swatch tests set their own environment)
 export CANDY_PLAIN=1   # the pty tests read the text of the messages: emojis stay off unless the emoji tests unset this themselves
 export THEMES_PICKER=builtin THEMES_SWITCH_AFTER_INSTALL=0   # tests choose the picker explicitly (a developer machine may have gum) and enable the switch menu after an install only in their own pty tests
 export PTYXIS_PALETTES="$T/ptyxis-palettes" GTKSOURCEVIEW_STYLES="$T/gsv-styles" FLATPAK_APPS="$T/var-app"
@@ -1122,6 +1123,61 @@ fam_reset; famrun '^(Col|Solo)( |$)' '^blue' -- remove >/dev/null
 [ ! -e "$FD/Solo" ] && [ ! -e "$FD/Col-blue" ] && [ ! -e "$FD/Col-blue-dark" ] && [ -d "$FD/Col" ] && [ -d "$FD/Col-dark" ] && [ -d "$FD/Multi" ] && [ "$(calls_n)" -eq 2 ] && chk ok "remove-icon: families, then the installed colours of a ticked family; only the ticked ones go" || chk fail "remove grouped: $(ls "$FD" | tr '\n' ' ') calls $(calls_n)"
 fam_reset; famrun -- remove Col-blue >/dev/null; [ ! -e "$FD/Col-blue" ] && [ -d "$FD/Col" ] && [ "$(calls_n)" -eq 0 ] && chk ok "remove-icon <name> skips the menus" || chk fail "direct remove"
 rm -rf "$FD"
+
+# ---- colour swatches in the pickers (truecolor terminal only; checked in a pty with the raw bytes) ----------------------------------------------
+echo "=== swatches"
+cat > "$T/swpty.py" <<'PY'
+import os, pty, select, sys, time, fcntl, termios, struct, re, json
+# swpty.py ROWS COLS KEYS(comma list of q|enter|down|x|text) ENV(json) CMD...: run in a pty, print the raw output
+rows, cols = int(sys.argv[1]), int(sys.argv[2]); seq = sys.argv[3].split(','); env = dict(os.environ); env.update(json.loads(sys.argv[4])); cmd = sys.argv[5:]
+keys = {'down': b'\x1b[B', 'enter': b'\r', 'q': b'q', 'x': b'x'}
+for k in [k for k, v in json.loads(sys.argv[4]).items() if v is None]: env.pop(k, None)
+pid, fd = pty.fork()
+if pid == 0: os.execvpe(cmd[0], cmd, env)
+fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
+out = b''; i = 0; last = time.time(); t0 = last
+while time.time() - t0 < 25:
+    r, _, _ = select.select([fd], [], [], 0.2)
+    if r:
+        try: d = os.read(fd, 8192)
+        except OSError: break
+        if not d: break
+        out += d; last = time.time()
+    elif i < len(seq) and time.time() - last > 0.4: os.write(fd, keys.get(seq[i], seq[i].encode())); i += 1; last = time.time()
+    elif i >= len(seq) and time.time() - last > 3: break
+try: os.kill(pid, 9)
+except Exception: pass
+sys.stdout.buffer.write(out)
+PY
+swp() { python3 -I "$T/swpty.py" "$@"; }
+SWD="$T/sw-themes"; mkdir -p "$SWD"
+raw=$(THEMES_DEST=$SWD swp 30 80 q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1"}' tools/themectl.sh themes install | tr -d '\r')
+printf '%s' "$raw" | grep -qF $'\e[48;2;46;52;64m  \e[0m' && printf '%s' "$raw" | grep -qF $'\e[48;2;136;192;208m  \e[0m' && chk ok "swatches: the theme list shows the scheme background and its default accent before each entry (nordic 2E3440 + 88C0D0)" || chk fail "theme swatches missing"
+raw=$(THEMES_DEST=$SWD swp 30 80 q '{"COLORTERM":null,"TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1"}' tools/themectl.sh themes install | tr -d '\r'); ! printf '%s' "$raw" | grep -qF $'48;2;' && chk ok "swatches: no COLORTERM, no swatches" || chk fail "swatches without COLORTERM"
+raw=$(THEMES_DEST=$SWD swp 30 80 q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":"1","CANDY_PLAIN":"1"}' tools/themectl.sh themes install | tr -d '\r'); ! printf '%s' "$raw" | grep -qF $'48;2;' && chk ok "swatches: NO_COLOR set, no swatches" || chk fail "swatches with NO_COLOR"
+raw=$(COLORTERM=truecolor THEMES_DEST=$SWD tools/themectl.sh themes list </dev/null 2>&1; printf 'q\n' | COLORTERM=truecolor THEMES_DEST=$SWD tools/themectl.sh themes install 2>&1); ! printf '%s' "$raw" | grep -qF $'48;2;' && chk ok "swatches: never in list output or the numbered no-terminal fallback" || chk fail "swatches in plain output"
+raw=$(THEMES_DEST=$SWD swp 12 40 q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1"}' tools/themectl.sh themes install | tr -d '\r' | sed 's/\x1b\[[0-9;?]*[A-Za-z]//g'); wmax=$(printf '%s\n' "$raw" | awk '{ if (length($0) > m) m = length($0) } END { print m+0 }')
+[ "$wmax" -le 40 ] && chk ok "swatches: rows are cut by visible width (no row wider than the 40-column terminal, widest $wmax)" || chk fail "swatch row too wide: $wmax"
+# the accent submenu and the icon colour picker
+rm -rf "$SWD"; mkdir -p "$SWD"; THEMES_DEST=$SWD tools/themectl.sh themes install nordic >/dev/null 2>&1
+raw=$(THEMES_DEST=$SWD swp 30 80 q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1"}' tools/themectl.sh themes switch nordic | tr -d '\r')
+printf '%s' "$raw" | grep -qF $'\e[48;2;191;97;106m  \e[0m' && chk ok "swatches: the accent submenu shows each accent colour (nordic red BF616A)" || chk fail "accent swatches missing"
+FD2="$T/sw-icons"; mkdir -p "$FD2"/{Col,Col-dark,Col-light,Col-blue,Col-blue-dark,Col-blue-light}; for d in "$FD2"/*; do : > "$d/.candy-for-gnome"; done
+raw=$(ICON_SOURCES="$T/fam.conf" ICONS_DEST="$FD2" swp 30 80 down,enter,q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1","THEMES_PICKER":"builtin"}' tools/themectl.sh icons switch | tr -d '\r')
+printf '%s' "$raw" | grep -qF $'\e[48;2;52;152;219m  \e[0m' && chk ok "swatches: the icon color picker shows the variant color (blue), the plain default only a blank" || chk fail "icon color swatches missing"
+# gum: the escapes inside an item are drawn, the selection comes back WITHOUT them (as gum 2.0.2 does, checked), and the lookup still finds the entry
+GSB2="$T/gum-strip"; mkdir -p "$GSB2"
+cat > "$GSB2/gum" <<'SH'
+#!/bin/sh
+printf 'CALL\n' >> "$GUMCALLS"; printf '%s\n' "$@" >> "$GUMCALLS"
+pat=$(head -1 "$GUMQ"); sed -i 1d "$GUMQ"
+for a in "$@"; do case "$a" in -*|▸*|◉*|○*) continue ;; esac; if printf '%s' "$a" | grep -Eq "$pat"; then printf '%s\n' "$a" | sed 's/\x1b\[[0-9;]*m//g'; fi; done
+SH
+chmod +x "$GSB2/gum"
+: > "$LOG"; : > "$GC"; printf '%s\n' 'Col' 'blue$' 'dark$' > "$GQ"
+swp 30 80 '' '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1","THEMES_PICKER":"gum","PATH":"'"$GSB2:$PATH"'","GUMQ":"'"$GQ"'","GUMCALLS":"'"$GC"'","ICON_SOURCES":"'"$T/fam.conf"'","ICONS_DEST":"'"$FD2"'"}' tools/themectl.sh icons switch >/dev/null 2>&1
+grep -qF $'\e[48;2;52;152;219m' "$GC" && grep -q "icon-theme Col-blue-dark" "$LOG" && chk ok "swatches with gum: the item carries the escapes, the stripped selection still maps back to the entry (Col-blue-dark chosen)" || chk fail "gum swatches: $(tr '\n' ';' < "$LOG") $(grep -c 48 "$GC")"
+rm -rf "$FD2" "$SWD"
 
 # ---- message emojis (terminal only; CANDY_FORCE_EMOJI exists for this test) ------------------------------------------------------------------
 echo "=== message emojis"

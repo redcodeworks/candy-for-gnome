@@ -34,6 +34,8 @@ When a tool has no config file yet, the installer creates one that holds only th
 
 Every installed folder carries a small `.candy-for-gnome` marker file recording where it came from and when it was installed and last updated.
 
+On a truecolor terminal the menus show a small color square before entries that are colors (accents, icon colors, and background plus accent for themes); `NO_COLOR=1` turns them off.
+
 On a terminal, key messages start with an emoji (✅ installed, 🎨 applied, 🔄 updated, 🧹 removed, ❗ something for you to do, 🟡 warning, ❌ error). Set `CANDY_PLAIN=1` or `NO_EMOJI=1` (any non-empty value, like `NO_COLOR`; the same switch turns them off in the image's `ujust` recipes) to switch them off; piped or captured output never has them.
 
 | Themes | Icons | |
