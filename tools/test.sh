@@ -783,6 +783,7 @@ ICON_SOURCES="$T/drift.conf" just remove-icon Real-One >/dev/null 2>&1; rm -rf "
 printf 'fake|file://%s/icons-src|top|Fake-Dark Fake-Light\n' "$T" > "$T/sources.conf"
 just list-icons 2>&1 | grep -q Fake-Dark && chk ok "list-icons shows the sets" || chk fail "list-icons"
 just install-icon Fake-Dark >/dev/null 2>&1; [ -d "$ICONS_DEST/Fake-Dark" ] && chk ok "install-icon" || chk fail "install-icon"
+out=$(printf '\n' | just install-icon 2>&1); ! printf '%s\n' "$out" | grep -q '\[x\]' && printf '%s\n' "$out" | grep -q 'Nothing selected' && chk ok "install-icon: nothing is pre-ticked even with a set installed; Enter alone installs nothing" || chk fail "install-icon preselection: $out"
 : > "$LOG"; just switch-icon Fake-Dark >/dev/null 2>&1; grep -q "icon-theme Fake-Dark" "$LOG" && chk ok "switch-icon" || chk fail "switch-icon"
 (cd "$T/icons-src" && echo y > Fake-Dark/apps/b.svg && git add -A && git commit -q -m more)
 just update-icon >/dev/null 2>&1; [ -f "$ICONS_DEST/Fake-Dark/apps/b.svg" ] && chk ok "update-icon picks up the new upstream commit" || chk fail "update-icon"
@@ -989,6 +990,26 @@ rm -f "$STUB_LOG"; out=$(GUM_STUB_EXIT=130 ICONS_DEST=$IP gumpty tools/themectl.
 printf '%s' "$out" | grep -q "To switch later: just switch-icon Fake-Light" && chk ok "icons: Esc skips and prints just switch-icon NAME" || chk fail "icon cancel: $(printf '%s' "$out" | tail -3)"
 rm -rf "$AP" "$IP"
 
+# ---- missing config files are created with only the theme lines; existing ones are never edited without a yes -----------------------------------
+echo "=== created configs"
+app_reset; rm -f "$CFGA/alacritty/alacritty.toml" "$CFGA/helix/config.toml" "$CFGA/yazi/theme.toml" "$CFGA/bat/config" "$CFGA/zellij/config.kdl"; mkdir -p "$CFGA/ghostty"
+aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+out=$(aps just switch-theme gruvbox-material blue </dev/null 2>&1)
+body() { grep -v '^[#/]' "$1"; }
+[ "$(body "$CFGA/alacritty/alacritty.toml")" = "$(printf '[general]\nimport = [ "%s" ]' "$CFGA/alacritty/themes/candy-for-gnome.toml")" ] && chk ok "created: alacritty.toml holds only the import" || chk fail "created alacritty: $(cat "$CFGA/alacritty/alacritty.toml" 2>&1)"
+[ "$(body "$CFGA/helix/config.toml")" = 'theme = "candy-for-gnome"' ] && chk ok "created: Helix config.toml holds only the theme line" || chk fail "created helix"
+[ "$(body "$CFGA/yazi/theme.toml")" = "$(printf '[flavor]\ndark = "candy-for-gnome-dark"\nlight = "candy-for-gnome-light"')" ] && chk ok "created: Yazi theme.toml holds only the [flavor] table" || chk fail "created yazi"
+[ "$(body "$CFGA/bat/config")" = "$(printf -- '--theme="auto:system"\n--theme-dark="candy-for-gnome-dark"\n--theme-light="candy-for-gnome-light"')" ] && chk ok "created: bat config holds only the three theme lines" || chk fail "created bat"
+[ "$(body "$CFGA/zellij/config.kdl")" = "$(printf 'theme_dark "candy-for-gnome-dark"\ntheme_light "candy-for-gnome-light"')" ] && chk ok "created: zellij config.kdl holds only theme_dark and theme_light" || chk fail "created zellij"
+[ "$(body "$CFGA/ghostty/config.ghostty")" = 'config-file = ?candy-for-gnome.conf' ] && chk ok "created: Ghostty config.ghostty holds only the include line" || chk fail "created ghostty"
+head -1 "$CFGA/helix/config.toml" | grep -q 'created by candy-for-gnome' && printf '%s\n' "$out" | grep -q "Created .*config.toml" && chk ok "created: a header comment names candy-for-gnome and one line per file says it was created" || chk fail "created header/message"
+snap=$(cat "$CFGA"/alacritty/alacritty.toml "$CFGA"/helix/config.toml "$CFGA"/yazi/theme.toml "$CFGA"/bat/config "$CFGA"/zellij/config.kdl "$CFGA"/ghostty/config.ghostty | sha1sum)
+out=$(aps just switch-theme gruvbox-material blue </dev/null 2>&1)
+[ "$(cat "$CFGA"/alacritty/alacritty.toml "$CFGA"/helix/config.toml "$CFGA"/yazi/theme.toml "$CFGA"/bat/config "$CFGA"/zellij/config.kdl "$CFGA"/ghostty/config.ghostty | sha1sum)" = "$snap" ] && ! printf '%s\n' "$out" | grep -q "Created " && chk ok "created: a second run changes nothing and creates nothing" || chk fail "created configs not idempotent"
+aps just switch-theme Adwaita </dev/null >/dev/null 2>&1; [ "$(cat "$CFGA"/alacritty/alacritty.toml "$CFGA"/helix/config.toml "$CFGA"/yazi/theme.toml "$CFGA"/bat/config "$CFGA"/zellij/config.kdl "$CFGA"/ghostty/config.ghostty | sha1sum)" = "$snap" ] && [ -L "$CFGA/helix/themes/candy-for-gnome.toml" ] && readlink "$CFGA/helix/themes/candy-for-gnome.toml" | grep -q adwaita && chk ok "created: the Adwaita revert still works with the created files (links retargeted, files untouched)" || chk fail "adwaita with created configs"
+app_reset; aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1; cfg_snapshot > "$T/cc.before"; aps just switch-theme gruvbox-material blue </dev/null >/dev/null 2>&1; cfg_snapshot > "$T/cc.after"
+cmp -s "$T/cc.before" "$T/cc.after" && chk ok "existing configs are not edited without a yes (no terminal: the lines are only printed)" || chk fail "existing config changed"
+
 # ---- Adwaita (GNOME default): switch-theme Adwaita / switch-icon Adwaita --------------------------------------------------------------------
 echo "=== adwaita"
 links_of() { find "$CFGA" -type l -printf '%p -> %l\n' | sort; }
@@ -1077,7 +1098,7 @@ fam_reset; out=$(printf '2\n' | ICON_SOURCES="$T/fam.conf" ICONS_DEST="$FD" just
 grep -q "icon-theme Solo" "$LOG" && printf '%s' "$out" | grep -q "1) Adwaita (GNOME default)" && printf '%s' "$out" | grep -q "Col-blue" && chk ok "without a terminal the flat numbered list is unchanged (every installed set, Adwaita first)" || chk fail "numbered list: $out"
 fam_reset; famrun '(Col|Multi)$' '(default|blue|red)$' 'Multi$' -- install >/dev/null; cat "$GC" > "$T/fam-install.calls"
 c1=$(awk '/^CALL$/ {n++} n==1' "$GC" | grep -v '^CALL$' | grep -E '^(✓ )?(Solo|Col|Multi)$' | tr '\n' '|'); c2=$(awk '/^CALL$/ {n++} n==2' "$GC" | grep -v '^CALL$' | grep -E '^(✓ )?(default|blue|red)$' | tr '\n' '|'); c3=$(awk '/^CALL$/ {n++} n==3' "$GC" | grep -v '^CALL$' | grep -E '^(✓ )?Multi(-Dark)?$' | tr '\n' '|')
-[ "$c1" = "✓ Solo|✓ Col|✓ Multi|" ] && [ "$c2" = "✓ default|✓ blue|red|" ] && [ "$c3" = "✓ Multi|✓ Multi-Dark|" ] && [ "$(calls_n)" -eq 3 ] && chk ok "install-icon: families first, then the colours (no style rows) and the sets of each ticked family, installed ones marked" || chk fail "install lists: $c1 / $c2 / $c3 ($(calls_n))"
+! grep -qx -- '--selected' "$GC" && [ "$c1" = "✓ Solo|✓ Col|✓ Multi|" ] && [ "$c2" = "✓ default|✓ blue|red|" ] && [ "$c3" = "✓ Multi|✓ Multi-Dark|" ] && [ "$(calls_n)" -eq 3 ] && chk ok "install-icon: families first, then the colours (no style rows) and the sets of each ticked family, installed ones marked, nothing pre-ticked" || chk fail "install lists: $c1 / $c2 / $c3 ($(calls_n))"
 fam_reset; rm -rf "$FD"/Solo; famrun '^Solo$' -- install | grep -q "Skipping Solo" && [ "$(calls_n)" -eq 1 ] && chk ok "install-icon: a one-set family installs from the first step alone" || chk fail "solo install"
 fam_reset; famrun '^(Col|Solo)( |$)' '^blue' -- remove >/dev/null
 [ ! -e "$FD/Solo" ] && [ ! -e "$FD/Col-blue" ] && [ ! -e "$FD/Col-blue-dark" ] && [ -d "$FD/Col" ] && [ -d "$FD/Col-dark" ] && [ -d "$FD/Multi" ] && [ "$(calls_n)" -eq 2 ] && chk ok "remove-icon: families, then the installed colours of a ticked family; only the ticked ones go" || chk fail "remove grouped: $(ls "$FD" | tr '\n' ' ') calls $(calls_n)"
