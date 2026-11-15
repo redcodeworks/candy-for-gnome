@@ -57,7 +57,7 @@ echo() {
     case "$1" in
         Refused:\ *|Could\ not\ *|install.sh\ failed*|install.sh\ did\ not*|No\ accent\ map*|usage:\ *|*\ is\ not\ a\ theme\ here*|*\ is\ not\ an\ icon\ set\ here*|*\ is\ not\ an\ accent\ of\ *) e=❌ ;;
         WARNING:\ *|warning:\ *|Note:\ *|*\ not\ applied*|Left\ *\ alone*|Not\ switching\ the\ *|Skipping\ *) e=🟡 ;;
-        Installed\ *) e=✅ ;;
+        Installed\ *|Created\ *) e=✅ ;;
         Updated\ *|Replaced\ *|Edited\ *) e=🔄 ;;
         Removed\ *) e=🧹 ;;
         Accent:\ *|*\ is\ now\ *|*\ are\ now\ *|Ptyxis\ palette\ key\ reads\ *) e=🎨 ;;
@@ -172,7 +172,10 @@ choose_accent() {
     done
     local savedl=("${labels[@]}") rc=0 idx=() cc=0
     labels=("${ls[@]}"); for i in "${!ls[@]}"; do idx+=("$i"); if [ "${acc_names[i]}" = "$cur" ]; then cc=$i; fi; done
+    local sw_sv=("${swatch[@]}") sw_wsv=("${swatch_w[@]}"); sw_clear   # the accent swatches replace the theme list's for this one menu
+    if sw_ok; then for i in "${!ls[@]}"; do sw_set "$i" "${acc_dark[i]}"; done; fi
     tui_cur=$cc; pick=""; tui_one "Accent colour for $sc" "${idx[@]}" || rc=$?; tui_cur=0; labels=("${savedl[@]}")
+    swatch=("${sw_sv[@]}"); swatch_w=("${sw_wsv[@]}")
     if [ "$rc" -eq 0 ] && [ -n "$pick" ]; then accent_pick="${acc_names[pick]}"
     elif [ "$rc" -eq 2 ]; then
         echo; echo "Accent colour for $sc (the scheme's terminal colours):"
@@ -344,7 +347,7 @@ src_index() {    # src_index ITEM FOLDER: our source's index.theme for that fold
 }
 is_ours() {      # is_ours DIR SRC_INDEX
     [ -d "$1" ] || return 1
-    [ -f "$1/$marker" ] && return 0
+    marker_present "$1" && return 0
     [ -f "$1/$old_marker" ] && return 1     # installed under the old name: never ours, not even by index.theme
     [ -n "${2:-}" ] && [ -f "$2" ] && [ -f "$1/index.theme" ] && cmp -s "$2" "$1/index.theme"
 }
@@ -362,7 +365,33 @@ may_touch() {
     echo "Refused: $d exists and was not installed by candy-for-gnome; left alone (FORCE=1 replaces it, or run in a terminal to be asked)." >&2
     return 1
 }
-mark_dir() { printf '%s\n' "$2" > "$1/$marker"; }
+# The marker file is `key=value` lines (schema=1, kind, name, folder, variant, style, source, source_commit, installed_at, updated_at, installer). A
+# one-line bare marker from earlier versions (just the name) still counts as ours and reads as the name; the next install or update of that folder
+# rewrites it in the new format. ONE reader for all of it: marker_present (is it ours) and marker_read DIR KEY.
+marker_present() { [ -f "$1/$marker" ]; }
+marker_read() {   # marker_read DIR KEY: the value (empty when absent); a legacy bare marker answers `name` with its line and nothing else
+    local f="$1/$marker"
+    [ -f "$f" ] || return 0
+    if ! grep -q '=' "$f"; then [ "$2" = name ] && head -n1 "$f" | tr -d '\r'; return 0; fi
+    sed -n "s/^$2=//p" "$f" | head -n1 | tr -d '\r'
+}
+now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+mark_old=""   # installed_at of the marker that was replaced (the caller reads it before it removes the old folder)
+mark_dir() {   # mark_dir DIR ITEM FOLDER: write the marker (name = what the bare marker held)
+    local d="$1" it="$2" f="$3" n kd src url sc="" var="" sty="" inst now
+    now=$(now_utc); inst="${mark_old:-$now}"
+    if [ "$kind" = themes ]; then
+        kd=theme; url=$(git -C "$root" remote get-url origin 2>/dev/null || echo https://github.com/redcodeworks/candy-for-gnome); sc=$(git -C "$root" rev-parse HEAD 2>/dev/null || true)
+    else
+        kd=icon; src="${i_src[$it]:-}"; url="${src_url[$src]:-}"
+        [ -n "$src" ] && sc=$(git -C "$(clone_of "$src")" rev-parse HEAD 2>/dev/null || true)
+        if is_script "$it" 2>/dev/null; then var="${i_var[$it]:-}"; sty=$(style_label "$it" "$f"); fi
+    fi
+    {
+        printf 'schema=1\nkind=%s\nname=%s\nfolder=%s\nvariant=%s\nstyle=%s\n' "$kd" "$it" "$f" "$var" "$sty"
+        printf 'source=%s\nsource_commit=%s\ninstalled_at=%s\nupdated_at=%s\ninstaller=%s\n' "$url" "$sc" "$inst" "$now" "$(git -C "$root" rev-parse --short=12 HEAD 2>/dev/null || true)"
+    } > "$d/$marker"
+}
 adw_label="Adwaita (GNOME default)"; items_adw=0
 add_adwaita() {   # switch and list only: the GNOME default as the first entry (nothing is installed or removed for it; it is the system's own)
     items=(Adwaita "${items[@]}"); labels=("$adw_label" "${labels[@]}"); items_adw=1
@@ -370,6 +399,44 @@ add_adwaita() {   # switch and list only: the GNOME default as the first entry (
 is_adwaita() { [ "${items_adw:-0}" = 1 ] && [ "$1" = Adwaita ]; }
 is_installed() { is_adwaita "$1" && return 0; local f; while read -r f; do [ -e "$dest/$f" ] && is_ours "$dest/$f" "$(src_index "$1" "$f")" && return 0; done < <(folders_of "$1"); return 1; }
 index_of() { local i; for i in "${!items[@]}"; do [ "${items[i]}" = "$1" ] && { echo "$i"; return 0; }; done; return 1; }
+
+# ---- colour swatches in the pickers (decoration only: the labels stay plain text, so filters, lookups and the numbered fallback never see an escape) ---
+# swatch[i] is drawn before the label of entry i (swatch_w[i] = its visible width). Only on a terminal, only when COLORTERM says truecolor or 24bit
+# and NO_COLOR is empty. Entries without a known colour get a blank of the same width so the labels stay aligned.
+swatch=(); swatch_w=(); pl_hex=()   # pl_hex[i]: the display color of entry i of the next pick_label / pick_many_label (colour pickers)
+sw_ok() { [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ -n "${TERM:-}" ] && [ "$TERM" != dumb ] && case "${COLORTERM:-}" in truecolor|24bit) return 0 ;; *) return 1 ;; esac; }
+sw_set() {   # sw_set INDEX HEX...: one two-space block of a truecolor background per colour, then a space; an empty or invalid HEX becomes a blank
+    local i="$1" h s="" w=0; shift
+    for h in "$@"; do
+        if [[ "$h" =~ ^#[0-9a-fA-F]{6}$ ]]; then s+="$(printf '\e[48;2;%d;%d;%dm  \e[0m' "0x${h:1:2}" "0x${h:3:2}" "0x${h:5:2}")"; else s+="  "; fi
+        w=$((w+2))
+    done
+    swatch[i]="$s "; swatch_w[i]=$((w+1))
+}
+sw_clear() { swatch=(); swatch_w=(); }
+declare -A icon_hex=(); icon_hex_loaded=0
+icon_hex_of() {   # the display color of an icon color variant (empty when unknown)
+    if [ "$icon_hex_loaded" = 0 ]; then
+        icon_hex_loaded=1; local n h
+        if [ -f "$root/tools/icon-colors.conf" ]; then while read -r n h; do case "$n" in ""|"#"*) continue ;; esac; icon_hex[$n]="$h"; done < "$root/tools/icon-colors.conf"; fi
+    fi
+    echo "${icon_hex[$1]:-}"
+}
+theme_swatches_done=0
+theme_swatches() {   # themes: the terminal background and the default accent of each scheme before its entry (read with builtins: about 190 schemes per menu)
+    [ "$theme_swatches_done" = 0 ] || return 0
+    theme_swatches_done=1; sw_ok || return 0
+    local i sc f l bg acc n d lt fl
+    for i in "${!items[@]}"; do
+        sc="${items[i]}"; bg=""; acc=""
+        if [ -f "$root/$sc/accents/list" ]; then
+            while read -r n d lt fl; do case "$n" in ""|"#"*) continue ;; esac; [ -n "$acc" ] || acc="$d"; [ "$fl" = default ] && { acc="$d"; break; }; done < "$root/$sc/accents/list"
+            f="$root/$sc/ghostty/candy-for-gnome-$sc-dark"; [ -f "$f" ] || f="$root/$sc/ghostty/candy-for-gnome-$sc-light"
+            if [ -f "$f" ]; then while read -r l; do case "$l" in "background = "*) bg="${l#background = }"; break ;; esac; done < "$f"; fi
+        fi
+        sw_set "$i" "$bg" "$acc"
+    done
+}
 
 # ---- prompts -------------------------------------------------------------------------------------
 # Terminal UI (no dependencies): up/down or j/k move, SPACE toggles, a all, n none, ENTER confirms, q cancels. Without a
@@ -419,7 +486,7 @@ _tui_end() { stty "$_tui_saved" </dev/tty 2>/dev/null; printf '\e[?25h\n' >&2; t
 # tick count. Ctrl-C and every exit restore the terminal (stty, cursor).
 _tui_run() {
     local mode="$1" header="$2"; shift 2; local cand=("$@") n=$# cur="${tui_cur:-0}" top=0 i r line first=1 filt="" fmode=0 vis=() nv lf
-    local rows=24 cols=80 H=1 prevH=0 prevC=0 sz mark ticked foot hint
+    local rows=24 cols=80 H=1 prevH=0 prevC=0 sz mark ticked foot hint swp swn pre
     [ -t 0 ] && [ -t 2 ] && [ -r /dev/tty ] || return 2
     _tui_saved=$(stty -g </dev/tty) || return 2
     trap '_tui_end; exit 130' INT
@@ -452,9 +519,9 @@ _tui_run() {
         printf '\r\e[K%s\n' "${line:0:$((cols-1))}" >&2
         for ((r=0; r<H; r++)); do
             if [ $((top + r)) -ge "$nv" ]; then printf '\r\e[K\n' >&2; continue; fi
-            i=${vis[top+r]}; line="${labels[${cand[i]}]}"
-            if [ "$mode" = many ]; then mark=" "; [ "${on[${cand[i]}]:-0}" -eq 1 ] && mark="x"; line="[$mark] $line"; fi
-            line="${line:0:$((cols-3))}"
+            i=${vis[top+r]}; line="${labels[${cand[i]}]}"; swp="${swatch[${cand[i]}]:-}"; swn="${swatch_w[${cand[i]}]:-0}"
+            pre=""; if [ "$mode" = many ]; then mark=" "; [ "${on[${cand[i]}]:-0}" -eq 1 ] && mark="x"; pre="[$mark] "; fi
+            line="${pre}${swp}${line:0:$((cols-3-${#pre}-swn))}"   # the swatch (escapes) is not counted: swn is its visible width
             if [ $((top + r)) -eq "$cur" ]; then printf '\r\e[K\e[7m> %s\e[0m\n' "$line" >&2; else printf '\r\e[K  %s\n' "$line" >&2; fi
         done
         if [ "$nv" -eq 0 ]; then foot="0 of 0 shown (of $n)"; else foot="$((top+1))-$((top+H<nv ? top+H : nv)) of $nv"; fi
@@ -530,13 +597,14 @@ gum_run() {
     local mode="$1" header="$2"; shift 2; local cand=("$@") i lab l out line hn rows=24 sz h sel="" items=()
     local -A idx_of=()
     # featured entries (starred) first, then the rest; NO heading or divider rows: gum cannot make a row unselectable, and every row must be a real choice
-    if [ "${pick_keep_order:-0}" = 1 ]; then for i in "${cand[@]}"; do items+=("${labels[i]}"); done   # the caller ordered the list (just-installed first)
+    item_of() { echo "${swatch[$1]:-}${labels[$1]}"; }   # a swatch is part of the item text; gum returns the item WITHOUT its escapes (checked), so the key is the plain text
+    if [ "${pick_keep_order:-0}" = 1 ]; then for i in "${cand[@]}"; do items+=("$(item_of "$i")"); done   # the caller ordered the list (just-installed first)
     else
-        for i in "${cand[@]}"; do [ "${items_adw:-}" = 1 ] && [ "${labels[i]}" = "$adw_label" ] && items+=("${labels[i]}"); done   # the Adwaita entry stays first
-        for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] && items+=("${labels[i]}"); done
-        for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] || { [ "${items_adw:-}" = 1 ] && [ "${labels[i]}" = "$adw_label" ]; } || items+=("${labels[i]}"); done
+        for i in "${cand[@]}"; do [ "${items_adw:-}" = 1 ] && [ "${labels[i]}" = "$adw_label" ] && items+=("$(item_of "$i")"); done   # the Adwaita entry stays first
+        for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] && items+=("$(item_of "$i")"); done
+        for i in "${cand[@]}"; do [[ "${labels[i]}" == "★ "* ]] || { [ "${items_adw:-}" = 1 ] && [ "${labels[i]}" = "$adw_label" ]; } || items+=("$(item_of "$i")"); done
     fi
-    for i in "${cand[@]}"; do idx_of[${labels[i]}]=$i; [ "$mode" = many ] && [ "${on[i]:-0}" -eq 1 ] && sel+="${sel:+,}${labels[i]}"; done
+    for i in "${cand[@]}"; do idx_of[$(printf '%*s' "${swatch_w[i]:-0}" '')${labels[i]}]=$i; [ "$mode" = many ] && [ "${on[i]:-0}" -eq 1 ] && sel+="${sel:+,}${labels[i]}"; done
     sz=$(stty size </dev/tty 2>/dev/null) && rows=${sz% *}
     h=$((rows - 4)); [ "$h" -gt "${#items[@]}" ] && h=${#items[@]}; [ "$h" -lt 5 ] && h=5
     # colors: terminal palette colors only (ANSI 0-15 or the default foreground), never gum's fixed 256-color pink/purple; a variable the user set is left alone
@@ -553,7 +621,7 @@ gum_run() {
     while IFS= read -r line; do
         [ -n "$line" ] || continue
         if [ -n "${idx_of[$line]+x}" ]; then i=${idx_of[$line]}; else   # a label that came back changed: match by name (star and description stripped)
-            lab="${line#★ }"; lab="${lab%%  (*}"; i=""
+            line="${line#"${line%%[![:space:]]*}"}"; lab="${line#★ }"; lab="${lab%%  (*}"; i=""
             for hn in "${cand[@]}"; do l="${labels[hn]#★ }"; l="${l%%  (*}"; if [ "$l" = "$lab" ]; then i=$hn; break; fi; done
             [ -n "$i" ] || continue
         fi
@@ -566,6 +634,7 @@ chosen=(); on=()
 choose_many() {
     local header="$1"; shift; local cand=("$@") i a mark rc=0 handler
     chosen=()
+    [ "$kind" != themes ] || theme_swatches
     handler=$(pick_handler); picker_used=$handler
     if [ "$handler" = gum ]; then
         gum_run many "$header" "${cand[@]}"; return 0
@@ -597,6 +666,7 @@ pick=""
 choose_one() {
     local header="$1"; shift; local cand=("$@") i a rc=0 handler
     pick=""
+    [ "$kind" != themes ] || theme_swatches
     handler=$(pick_handler)
     if [ "$handler" = gum ]; then gum_run one "$header" "${cand[@]}"; return 0; fi
     tui_one "$header" "$@" || rc=$?
@@ -818,7 +888,7 @@ gh_switch() {    # point Ghostty at the scheme: link the pair file, ask once abo
     conf=$(gh_conf_file)
     if [ -n "$conf" ] && gh_line_in "$conf"; then :
     elif [ -z "$conf" ]; then
-        echo "Ghostty: no config.ghostty or config in $gh_dir. To use the theme, put this line in your Ghostty config:"; echo "  $gh_line"
+        app_create "$gh_dir/config.ghostty" '#' "$gh_line" || { echo "Ghostty: could not create $gh_dir/config.ghostty. To use the theme, put this line in your Ghostty config:"; echo "  $gh_line"; }
     elif [ "$tty_in" = 1 ]; then
         read -r -u 3 -p "Add the line '$gh_line' to $conf so Ghostty loads the theme (no other line is touched; the theme line it includes overrides a theme= line there)? [y/N] " a || a=n
         case "$a" in
@@ -909,6 +979,7 @@ copy_folder() {  # replace folder $1 of item $2 in dest: remove the set's folder
     local f="$1" it="$2" c
     mkdir -p "$dest"
     if ! may_touch "$dest/$f" "$(src_index "$it" "$f")" Replace; then skipped+=("$f"); return 1; fi
+    mark_old=$(marker_read "$dest/$f" installed_at)
     rm -rf "${dest:?}/$f"
     if [ "$kind" = themes ]; then
         cp -a "$root/$it/themes/$f" "$dest/$f"
@@ -925,7 +996,7 @@ copy_folder() {  # replace folder $1 of item $2 in dest: remove the set's folder
         esac
         gtk-update-icon-cache -q -f -t "$dest/$f" 2>/dev/null || true
     fi
-    mark_dir "$dest/$f" "$it"
+    mark_dir "$dest/$f" "$it" "$f"; mark_old=""
     if [ "$kind" = themes ]; then apply_accent "$it" "$(current_accent "$it")" "$f"; fi
     installed_n=$((installed_n+1)); echo "Installed $f -> $dest/$f"
 }
@@ -937,10 +1008,11 @@ copy_item() {
     if [ -n "$build_dir" ]; then   # hidden shared bases the build produced (Fluent's .Fluent-base ...): replaced too
         for h in "$build_dir"/.[!.]*; do
             [ -d "$h" ] || continue; b=$(basename "$h")
+            mark_old=$(marker_read "$dest/$b" installed_at)
             # a base is ours when marked, or when one of this set's own folders was ours before this run (it links into the base)
-            if [ -e "$dest/$b" ] && [ ! -f "$dest/$b/$marker" ] && [ "$mine" -eq 1 ]; then rm -rf "${dest:?}/$b"
+            if [ -e "$dest/$b" ] && ! marker_present "$dest/$b" && [ "$mine" -eq 1 ]; then rm -rf "${dest:?}/$b"
             elif ! may_touch "$dest/$b" "" Replace; then continue; else rm -rf "${dest:?}/$b"; fi
-            cp -a "$h" "$dest/$b"; mark_dir "$dest/$b" "$1"; echo "Installed $b (shared base)"
+            cp -a "$h" "$dest/$b"; mark_dir "$dest/$b" "$1" "$b"; mark_old=""; echo "Installed $b (shared base)"
         done
     fi
     finish_item
@@ -986,15 +1058,20 @@ pick_label() {   # pick_label HEADER CURSOR_INDEX LABEL...: one choice among pla
     local header="$1" cur="$2"; shift 2
     local savedl=("${labels[@]}") ls=("$@") idx=() i
     labels=("${ls[@]}"); for i in "${!ls[@]}"; do idx+=("$i"); done
+    local sw_sv=("${swatch[@]}") sw_wsv=("${swatch_w[@]}"); sw_clear
+    if sw_ok && [ "${#pl_hex[@]}" -gt 0 ]; then for i in "${!ls[@]}"; do sw_set "$i" "${pl_hex[i]:-}"; done; fi
     tui_cur=$cur; pick_keep_order=1; choose_one "$header" "${idx[@]}"; pick_keep_order=0; tui_cur=0
-    pick_idx="${pick:-}"; labels=("${savedl[@]}")
+    pick_idx="${pick:-}"; labels=("${savedl[@]}"); swatch=("${sw_sv[@]}"); swatch_w=("${sw_wsv[@]}"); pl_hex=()
 }
 pick_many_label() {   # pick_many_label HEADER: checklist over pm_labels[] with pm_on[] ticks; pm_chosen = the ticked indexes
     local header="$1" savedl=("${labels[@]}") saved_on=() i k idx=()
     for k in "${!on[@]}"; do saved_on[k]="${on[k]}"; done
     labels=("${pm_labels[@]}"); on=(); for i in "${!pm_labels[@]}"; do on[i]="${pm_on[i]:-0}"; idx+=("$i"); done
+    local sw_sv=("${swatch[@]}") sw_wsv=("${swatch_w[@]}"); sw_clear
+    if sw_ok && [ "${#pl_hex[@]}" -gt 0 ]; then for i in "${!pm_labels[@]}"; do sw_set "$i" "${pl_hex[i]:-}"; done; fi
     choose_many "$header" "${idx[@]}"
     pm_chosen=("${chosen[@]}")
+    swatch=("${sw_sv[@]}"); swatch_w=("${sw_wsv[@]}"); pl_hex=()
     labels=("${savedl[@]}"); on=(); for k in "${!saved_on[@]}"; do on[k]="${saved_on[k]}"; done
 }
 icons_pick_switch() {   # family, then colour, then style: sets i (item index) and sw_target (the folder to switch to)
@@ -1017,7 +1094,7 @@ icons_pick_switch() {   # family, then colour, then style: sets i (item index) a
         for k in "${!mem[@]}"; do
             j="${mem[k]}"; if fam_script "$fk"; then lab=$(colour_label "${items[j]}"); else lab="${items[j]}"; fi
             if has_folder "${items[j]}" "$cur"; then lab="$lab  (current)"; ci=$k; fi
-            ls+=("$lab")
+            ls+=("$lab"); if fam_script "$fk"; then pl_hex[k]=$(icon_hex_of "${i_var[${items[j]}]:-}"); fi
         done
         if fam_script "$fk"; then c="$(fam_name "$fk") colour"; else c="$(fam_name "$fk") set"; fi
         pick_label "Switch to which $c?" "$ci" "${ls[@]}"
@@ -1046,16 +1123,14 @@ icon_folder_item() {   # icon_folder_item NAME: "<item index>|<folder>" when NAM
     return 1
 }
 icons_pick_many() {   # icons_pick_many install|remove: families first, then the colours or sets of each ticked family; sets chosen (item indexes)
-    local mode="$1" n lab ni any_inst=0 fkeys=() j k m fam_ticked=() c
+    local mode="$1" n lab ni fkeys=() j k m fam_ticked=() c
     pm_labels=(); pm_on=()
-    for j in "${!items[@]}"; do is_installed "${items[j]}" && any_inst=1; done
     for n in "${src_names[@]}"; do
         fam_members "$n"; [ "${#fam_idx[@]}" -gt 0 ] || continue
         fam_members "$n" installed; ni=${#fam_idx[@]}
         if [ "$mode" = remove ] && [ "$ni" -eq 0 ]; then continue; fi
         lab=$(fam_name "$n"); if [ "$mode" = install ] && [ "$ni" -gt 0 ]; then lab="✓ $lab"; fi
         fkeys+=("$n"); pm_labels+=("$lab")
-        if [ "$mode" = install ] && { [ "$ni" -gt 0 ] || { [ "$any_inst" -eq 0 ] && [ "$n" = papirus ]; }; }; then pm_on[${#pm_labels[@]}-1]=1; fi
     done
     [ "${#fkeys[@]}" -gt 0 ] || { chosen=(); return 0; }
     if [ "$mode" = install ]; then pick_many_label "Icon families to install into $dest"; else pick_many_label "Icon families to remove from $dest"; fi
@@ -1065,16 +1140,11 @@ icons_pick_many() {   # icons_pick_many install|remove: families first, then the
         if [ "$mode" = remove ]; then fam_members "$n" installed; else fam_members "$n"; fi
         local mem=("${fam_idx[@]}")
         if [ "${#mem[@]}" -eq 1 ]; then out+=("${mem[0]}"); continue; fi
-        pm_labels=(); pm_on=(); any=0
-        for j in "${mem[@]}"; do is_installed "${items[j]}" && any=1; done
+        pm_labels=(); pm_on=()
         for k in "${!mem[@]}"; do
             j="${mem[k]}"; if fam_script "$n"; then lab=$(colour_label "${items[j]}"); else lab="${items[j]}"; fi
-            if [ "$mode" = install ] && is_installed "${items[j]}"; then lab="✓ $lab"; pm_on[k]=1
-            elif [ "$mode" = install ] && [ "$any" -eq 0 ]; then
-                if fam_script "$n"; then [ "${i_var[${items[j]}]:-}" = standard ] && pm_on[k]=1
-                else case "${items[j]}" in Papirus|Papirus-Dark) pm_on[k]=1 ;; esac; fi
-            fi
-            pm_labels+=("$lab")
+            if [ "$mode" = install ] && is_installed "${items[j]}"; then lab="✓ $lab"; fi
+            pm_labels+=("$lab"); if fam_script "$n"; then pl_hex[k]=$(icon_hex_of "${i_var[${items[j]}]:-}"); fi
         done
         if fam_script "$n"; then c="colors"; else c="sets"; fi
         if [ "$mode" = install ]; then pick_many_label "$(fam_name "$n") $c to install into $dest"; else pick_many_label "$(fam_name "$n") $c to remove from $dest"; fi
@@ -1161,15 +1231,11 @@ case "$action" in
         if [ -n "$want" ]; then
             i=$(resolve); chosen=("$i")
         else
-            # themes: every box starts off; icons: installed sets ticked, else Papirus
+            # nothing is pre-ticked (themes and icons): an installed set is only marked with a check mark, and installing it again refreshes it
             for i in "${!items[@]}"; do on[i]=0; done
-            if [ "$kind" = icons ]; then
-                any=0; for i in "${!items[@]}"; do if is_installed "${items[i]}"; then on[i]=1; any=1; fi; done
-                if [ "$any" -eq 0 ]; then for i in "${!items[@]}"; do case "${items[i]}" in Papirus|Papirus-Dark) on[i]=1 ;; esac; done; fi
-            fi
             if [ "$kind" = icons ] && icons_grouped; then icons_pick_many install
             else
-                if [ "$kind" = icons ]; then for i in "${!items[@]}"; do if [ "${on[i]}" -eq 1 ] && is_installed "${items[i]}"; then labels[i]="✓ ${labels[i]}"; fi; done; fi
+                if [ "$kind" = icons ]; then for i in "${!items[@]}"; do if is_installed "${items[i]}"; then labels[i]="✓ ${labels[i]}"; fi; done; fi
                 choose_many "${noun^}s to install into $dest" "${!items[@]}"
             fi
         fi

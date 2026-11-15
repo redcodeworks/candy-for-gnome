@@ -67,6 +67,7 @@ case "$1" in
 esac
 SH
 chmod +x "$T/bin/dconf"
+unset COLORTERM; export NO_COLOR=1   # no swatches in the pty tests that read the picker text (the swatch tests set their own environment)
 export CANDY_PLAIN=1   # the pty tests read the text of the messages: emojis stay off unless the emoji tests unset this themselves
 export THEMES_PICKER=builtin THEMES_SWITCH_AFTER_INSTALL=0   # tests choose the picker explicitly (a developer machine may have gum) and enable the switch menu after an install only in their own pty tests
 export PTYXIS_PALETTES="$T/ptyxis-palettes" GTKSOURCEVIEW_STYLES="$T/gsv-styles" FLATPAK_APPS="$T/var-app"
@@ -173,7 +174,7 @@ for s in $loop_schemes; do
     done
     last=$(grep -v '^#' "$s/accents/list" | awk 'NF {print $1}' | tail -1); st=$(grep "^$s=" "$T/state/candy-for-gnome/accents" 2>/dev/null | cut -d= -f2)
     [ "$st" = "$last" ] && chk ok "accent remembered ($st)" || chk fail "accent state '$st' != '$last'"
-    h1=$(find "$D" -type f -exec sha1sum {} + | sort | sha1sum); THEMES_DEST=$D just update-theme >/dev/null 2>&1; h2=$(find "$D" -type f -exec sha1sum {} + | sort | sha1sum)
+    h1=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum); THEMES_DEST=$D just update-theme >/dev/null 2>&1; h2=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum)   # the marker carries updated_at, which moves on purpose
     [ "$h1" = "$h2" ] && chk ok "update-theme keeps the remembered accent" || chk fail "update-theme changed the installed tree"
     THEMES_DEST=$D just remove-theme "$s" >/dev/null 2>&1; [ -z "$(ls -A "$D" 2>/dev/null)" ] && chk ok "remove-theme emptied the set" || chk fail "remove-theme left $(ls "$D" | tr '\n' ' ')"
 done
@@ -270,7 +271,7 @@ G="$T/guard-themes"; mkdir -p "$G/Dracula"; echo mine > "$G/Dracula/mine.txt"; p
 out=$(THEMES_DEST=$G just install-theme dracula </dev/null 2>&1); rc=$?
 [ -f "$G/Dracula/mine.txt" ] && [ ! -f "$G/Dracula/.candy-for-gnome" ] && chk ok "install: unrelated folder of the same name left untouched" || chk fail "install replaced an unrelated Dracula"
 printf '%s\n' "$out" | grep -q "not installed by candy-for-gnome" && [ $rc -eq 0 ] && chk ok "install: refusal message, other folders still handled (rc=$rc)" || chk fail "install: no refusal message or rc=$rc"
-[ -f "$G/Dracula-Shell-Dark/.candy-for-gnome" ] && [ "$(cat "$G/Dracula-Shell-Dark/.candy-for-gnome")" = dracula ] && chk ok "install: the other folders were installed with the marker" || chk fail "install: marker missing on Dracula-Shell-Dark"
+[ -f "$G/Dracula-Shell-Dark/.candy-for-gnome" ] && [ "$(sed -n 's/^name=//p' "$G/Dracula-Shell-Dark/.candy-for-gnome")" = dracula ] && chk ok "install: the other folders were installed with the marker" || chk fail "install: marker missing on Dracula-Shell-Dark"
 THEMES_DEST=$G just update-theme </dev/null >/dev/null 2>&1; [ -f "$G/Dracula/mine.txt" ] && chk ok "update: unrelated folder untouched" || chk fail "update replaced an unrelated Dracula"
 THEMES_DEST=$G just remove-theme dracula </dev/null >/dev/null 2>&1
 [ -f "$G/Dracula/mine.txt" ] && [ ! -e "$G/Dracula-Shell-Dark" ] && chk ok "remove: unrelated folder untouched, our folders removed" || chk fail "remove: wrong result ($(ls "$G" | tr '\n' ' '))"
@@ -660,6 +661,19 @@ python3 -I tools/scheme-from-ptyxis.py zz-fake "Fake Night" >/dev/null 2>&1; gre
 python3 -I tools/scheme-from-ptyxis.py zz-two "Fake Night" "Fake Duo" >/dev/null 2>&1; grep -q '^bg_deep = "#fafafa"' zz-two/scheme.toml && grep -q '^bg_deep = "#101820"' zz-two/scheme.toml && grep -qx 'ptyxis = "Fake Night"' zz-two/scheme.toml && grep -qx 'ptyxis_light = "Fake Duo"' zz-two/scheme.toml && chk ok "a second id gives the light variant and ptyxis_light" || chk fail "light palette argument"
 rm -rf zz-fake zz-duo zz-two; unset PTYXIS_BIN
 # ptyxis-compare: a copy of everforest declares a built-in id; fixture built-ins are made from the scheme's own colours (a directory of <id>.palette files)
+# gruvbox-material dark brights differ from the built-in by decision (ptyxis_brights_differ): accepted, but ONLY Color8-15 of the dark variant
+GMB="$T/fix-gm"; mkdir -p "$GMB"   # a stand-in for the Ptyxis built-in (flat, dark only: every bright equals its standard colour), CI has no Ptyxis binary
+{ printf '[Palette]\nName=Gruvbox Material\nPrimary=true\nForeground=#D4BE98\nBackground=#282828\nCursor=#D4BE98\n'
+  i=0; for c in 3C3836 EA6962 A9B665 D8A657 7DAEA3 D3869B 89B482 D4BE98 3C3836 EA6962 A9B665 D8A657 7DAEA3 D3869B 89B482 D4BE98; do printf 'Color%d=#%s\n' "$i" "$c"; i=$((i+1)); done; } > "$GMB/Gruvbox Material.palette"
+gmc() { PTYXIS_BIN="$GMB" python3 -I tools/ptyxis-compare.py --check zz-gm 2>/dev/null; }
+rm -rf zz-gm; mkdir zz-gm; cp gruvbox-material/scheme.toml zz-gm/
+out=$(gmc); [ -z "$out" ] && chk ok "ptyxis-compare: the decided gruvbox-material brights are accepted (and the light variant, which has no built-in, is not compared)" || chk fail "ptyxis-compare rejects the decided brights: $out"
+sed -i '/^ptyxis_brights_differ/d' zz-gm/scheme.toml; gmc | grep -q "Color9 .* differs" && chk ok "ptyxis-compare: without ptyxis_brights_differ the brights are reported" || chk fail "brights not reported without the key"
+awk '/^\[dark.ansi\]/ {d=1} d && /^green = / && !x {sub(/#[0-9a-f]{6}/, "#a9b666"); x=1} {print}' gruvbox-material/scheme.toml > zz-gm/scheme.toml
+gmc | grep -q "Color2 .* differs" && chk ok "ptyxis-compare: any other difference of the scheme (a standard color) is still reported" || chk fail "other difference not reported"
+cp gruvbox-material/scheme.toml zz-gm/; sed -i '/^\[dark.terminal\]/,/^\[light.terminal\]/{s/^bright_red = .*/bright_red = "#ea6962"/; s/^bright_green = .*/bright_green = "#a9b665"/; s/^bright_yellow = .*/bright_yellow = "#d8a657"/; s/^bright_blue = .*/bright_blue = "#7daea3"/; s/^bright_magenta = .*/bright_magenta = "#d3869b"/; s/^bright_cyan = .*/bright_cyan = "#89b482"/; s/^bright_black = .*/bright_black = "#3c3836"/; s/^bright_white = .*/bright_white = "#d4be98"/}' zz-gm/scheme.toml
+gmc | grep -q "stale" && chk ok "ptyxis-compare: ptyxis_brights_differ with equal brights is reported as stale" || chk fail "stale brights key not reported"
+rm -rf zz-gm
 mkdir zz-ef && cp everforest/scheme.toml zz-ef/
 EVER="$T/fix-ever"; mkdir -p "$EVER"
 python3 -I - "$EVER" <<'PY'
@@ -783,6 +797,14 @@ ICON_SOURCES="$T/drift.conf" just remove-icon Real-One >/dev/null 2>&1; rm -rf "
 printf 'fake|file://%s/icons-src|top|Fake-Dark Fake-Light\n' "$T" > "$T/sources.conf"
 just list-icons 2>&1 | grep -q Fake-Dark && chk ok "list-icons shows the sets" || chk fail "list-icons"
 just install-icon Fake-Dark >/dev/null 2>&1; [ -d "$ICONS_DEST/Fake-Dark" ] && chk ok "install-icon" || chk fail "install-icon"
+m="$ICONS_DEST/Fake-Dark/.candy-for-gnome"; ia=$(sed -n 's/^installed_at=//p' "$m")
+grep -qx 'schema=1' "$m" && grep -qx 'kind=icon' "$m" && grep -qx 'name=Fake-Dark' "$m" && grep -qx 'folder=Fake-Dark' "$m" && grep -q '^source=file://' "$m" && grep -Eq '^source_commit=[0-9a-f]{40}$' "$m" && grep -Eq '^installed_at=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$' "$m" && grep -q '^updated_at=' "$m" && grep -q '^installer=' "$m" && chk ok "marker: an icon install writes the key=value marker (schema, kind, name, folder, source, source_commit, installed_at, updated_at, installer)" || chk fail "icon marker: $(cat "$m")"
+sleep 1; just update-icon </dev/null >/dev/null 2>&1
+[ "$(sed -n 's/^installed_at=//p' "$m")" = "$ia" ] && [ "$(sed -n 's/^updated_at=//p' "$m")" != "$ia" ] && chk ok "marker: update keeps installed_at and moves updated_at" || chk fail "marker update times: $(cat "$m")"
+echo "Fake-Dark" > "$m"; just remove-icon Fake-Dark </dev/null >/dev/null 2>&1; [ ! -e "$ICONS_DEST/Fake-Dark" ] && chk ok "marker: a legacy one-line marker is still ours (remove-icon works)" || chk fail "legacy marker remove"
+just install-icon Fake-Dark </dev/null >/dev/null 2>&1; echo "Fake-Dark" > "$m"; just update-icon </dev/null >/dev/null 2>&1
+grep -qx 'schema=1' "$m" && grep -qx 'name=Fake-Dark' "$m" && chk ok "marker: a legacy marker is upgraded to key=value by the next update, the name kept" || chk fail "legacy upgrade: $(cat "$m")"
+out=$(printf '\n' | just install-icon 2>&1); ! printf '%s\n' "$out" | grep -q '\[x\]' && printf '%s\n' "$out" | grep -q 'Nothing selected' && chk ok "install-icon: nothing is pre-ticked even with a set installed; Enter alone installs nothing" || chk fail "install-icon preselection: $out"
 : > "$LOG"; just switch-icon Fake-Dark >/dev/null 2>&1; grep -q "icon-theme Fake-Dark" "$LOG" && chk ok "switch-icon" || chk fail "switch-icon"
 (cd "$T/icons-src" && echo y > Fake-Dark/apps/b.svg && git add -A && git commit -q -m more)
 just update-icon >/dev/null 2>&1; [ -f "$ICONS_DEST/Fake-Dark/apps/b.svg" ] && chk ok "update-icon picks up the new upstream commit" || chk fail "update-icon"
@@ -989,6 +1011,37 @@ rm -f "$STUB_LOG"; out=$(GUM_STUB_EXIT=130 ICONS_DEST=$IP gumpty tools/themectl.
 printf '%s' "$out" | grep -q "To switch later: just switch-icon Fake-Light" && chk ok "icons: Esc skips and prints just switch-icon NAME" || chk fail "icon cancel: $(printf '%s' "$out" | tail -3)"
 rm -rf "$AP" "$IP"
 
+# ---- marker metadata (themes) ---------------------------------------------------------------------------------------------------------------
+echo "=== marker metadata"
+app_reset; aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+gf=""; for d in "$APD"/*/; do d=${d%/}; case "$d" in *Shell*) ;; *) [ -n "$gf" ] || gf=${d##*/} ;; esac; done; mm="$APD/$gf/.candy-for-gnome"
+grep -qx 'schema=1' "$mm" && grep -qx 'kind=theme' "$mm" && grep -qx 'name=gruvbox-material' "$mm" && grep -qx "folder=$gf" "$mm" && grep -Eq '^source_commit=[0-9a-f]{40}$' "$mm" && grep -q '^installed_at=' "$mm" && grep -q '^source=' "$mm" && chk ok "marker: a theme install writes the key=value marker (name = the scheme)" || chk fail "theme marker: $(cat "$mm")"
+ia=$(sed -n 's/^installed_at=//p' "$mm"); sleep 1; aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+[ "$(sed -n 's/^installed_at=//p' "$mm")" = "$ia" ] && [ "$(sed -n 's/^updated_at=//p' "$mm")" != "$ia" ] && chk ok "marker: installing again keeps installed_at and moves updated_at" || chk fail "theme marker times"
+echo gruvbox-material > "$mm"; aps just update-theme </dev/null >/dev/null 2>&1; grep -qx 'name=gruvbox-material' "$mm" && grep -qx 'schema=1' "$mm" && chk ok "marker: a legacy one-line theme marker is upgraded by update-theme" || chk fail "theme legacy upgrade: $(cat "$mm")"
+echo gruvbox-material > "$mm"; aps just remove-theme gruvbox-material </dev/null >/dev/null 2>&1; [ ! -e "$APD/$gf" ] && chk ok "marker: remove-theme works on a legacy marker" || chk fail "theme legacy remove"
+aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1; aps just remove-theme gruvbox-material </dev/null >/dev/null 2>&1; [ ! -e "$APD/$gf" ] && chk ok "marker: remove-theme works on the new format" || chk fail "theme new remove"
+
+# ---- missing config files are created with only the theme lines; existing ones are never edited without a yes -----------------------------------
+echo "=== created configs"
+app_reset; rm -f "$CFGA/alacritty/alacritty.toml" "$CFGA/helix/config.toml" "$CFGA/yazi/theme.toml" "$CFGA/bat/config" "$CFGA/zellij/config.kdl"; mkdir -p "$CFGA/ghostty"
+aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+out=$(aps just switch-theme gruvbox-material blue </dev/null 2>&1)
+body() { grep -v '^[#/]' "$1"; }
+[ "$(body "$CFGA/alacritty/alacritty.toml")" = "$(printf '[general]\nimport = [ "%s" ]' "$CFGA/alacritty/themes/candy-for-gnome.toml")" ] && chk ok "created: alacritty.toml holds only the import" || chk fail "created alacritty: $(cat "$CFGA/alacritty/alacritty.toml" 2>&1)"
+[ "$(body "$CFGA/helix/config.toml")" = 'theme = "candy-for-gnome"' ] && chk ok "created: Helix config.toml holds only the theme line" || chk fail "created helix"
+[ "$(body "$CFGA/yazi/theme.toml")" = "$(printf '[flavor]\ndark = "candy-for-gnome-dark"\nlight = "candy-for-gnome-light"')" ] && chk ok "created: Yazi theme.toml holds only the [flavor] table" || chk fail "created yazi"
+[ "$(body "$CFGA/bat/config")" = "$(printf -- '--theme="auto:system"\n--theme-dark="candy-for-gnome-dark"\n--theme-light="candy-for-gnome-light"')" ] && chk ok "created: bat config holds only the three theme lines" || chk fail "created bat"
+[ "$(body "$CFGA/zellij/config.kdl")" = "$(printf 'theme_dark "candy-for-gnome-dark"\ntheme_light "candy-for-gnome-light"')" ] && chk ok "created: zellij config.kdl holds only theme_dark and theme_light" || chk fail "created zellij"
+[ "$(body "$CFGA/ghostty/config.ghostty")" = 'config-file = ?candy-for-gnome.conf' ] && chk ok "created: Ghostty config.ghostty holds only the include line" || chk fail "created ghostty"
+head -1 "$CFGA/helix/config.toml" | grep -q 'created by candy-for-gnome' && printf '%s\n' "$out" | grep -q "Created .*config.toml" && chk ok "created: a header comment names candy-for-gnome and one line per file says it was created" || chk fail "created header/message"
+snap=$(cat "$CFGA"/alacritty/alacritty.toml "$CFGA"/helix/config.toml "$CFGA"/yazi/theme.toml "$CFGA"/bat/config "$CFGA"/zellij/config.kdl "$CFGA"/ghostty/config.ghostty | sha1sum)
+out=$(aps just switch-theme gruvbox-material blue </dev/null 2>&1)
+[ "$(cat "$CFGA"/alacritty/alacritty.toml "$CFGA"/helix/config.toml "$CFGA"/yazi/theme.toml "$CFGA"/bat/config "$CFGA"/zellij/config.kdl "$CFGA"/ghostty/config.ghostty | sha1sum)" = "$snap" ] && ! printf '%s\n' "$out" | grep -q "Created " && chk ok "created: a second run changes nothing and creates nothing" || chk fail "created configs not idempotent"
+aps just switch-theme Adwaita </dev/null >/dev/null 2>&1; [ "$(cat "$CFGA"/alacritty/alacritty.toml "$CFGA"/helix/config.toml "$CFGA"/yazi/theme.toml "$CFGA"/bat/config "$CFGA"/zellij/config.kdl "$CFGA"/ghostty/config.ghostty | sha1sum)" = "$snap" ] && [ -L "$CFGA/helix/themes/candy-for-gnome.toml" ] && readlink "$CFGA/helix/themes/candy-for-gnome.toml" | grep -q adwaita && chk ok "created: the Adwaita revert still works with the created files (links retargeted, files untouched)" || chk fail "adwaita with created configs"
+app_reset; aps just install-theme gruvbox-material </dev/null >/dev/null 2>&1; cfg_snapshot > "$T/cc.before"; aps just switch-theme gruvbox-material blue </dev/null >/dev/null 2>&1; cfg_snapshot > "$T/cc.after"
+cmp -s "$T/cc.before" "$T/cc.after" && chk ok "existing configs are not edited without a yes (no terminal: the lines are only printed)" || chk fail "existing config changed"
+
 # ---- Adwaita (GNOME default): switch-theme Adwaita / switch-icon Adwaita --------------------------------------------------------------------
 echo "=== adwaita"
 links_of() { find "$CFGA" -type l -printf '%p -> %l\n' | sort; }
@@ -1077,12 +1130,67 @@ fam_reset; out=$(printf '2\n' | ICON_SOURCES="$T/fam.conf" ICONS_DEST="$FD" just
 grep -q "icon-theme Solo" "$LOG" && printf '%s' "$out" | grep -q "1) Adwaita (GNOME default)" && printf '%s' "$out" | grep -q "Col-blue" && chk ok "without a terminal the flat numbered list is unchanged (every installed set, Adwaita first)" || chk fail "numbered list: $out"
 fam_reset; famrun '(Col|Multi)$' '(default|blue|red)$' 'Multi$' -- install >/dev/null; cat "$GC" > "$T/fam-install.calls"
 c1=$(awk '/^CALL$/ {n++} n==1' "$GC" | grep -v '^CALL$' | grep -E '^(✓ )?(Solo|Col|Multi)$' | tr '\n' '|'); c2=$(awk '/^CALL$/ {n++} n==2' "$GC" | grep -v '^CALL$' | grep -E '^(✓ )?(default|blue|red)$' | tr '\n' '|'); c3=$(awk '/^CALL$/ {n++} n==3' "$GC" | grep -v '^CALL$' | grep -E '^(✓ )?Multi(-Dark)?$' | tr '\n' '|')
-[ "$c1" = "✓ Solo|✓ Col|✓ Multi|" ] && [ "$c2" = "✓ default|✓ blue|red|" ] && [ "$c3" = "✓ Multi|✓ Multi-Dark|" ] && [ "$(calls_n)" -eq 3 ] && chk ok "install-icon: families first, then the colours (no style rows) and the sets of each ticked family, installed ones marked" || chk fail "install lists: $c1 / $c2 / $c3 ($(calls_n))"
+! grep -qx -- '--selected' "$GC" && [ "$c1" = "✓ Solo|✓ Col|✓ Multi|" ] && [ "$c2" = "✓ default|✓ blue|red|" ] && [ "$c3" = "✓ Multi|✓ Multi-Dark|" ] && [ "$(calls_n)" -eq 3 ] && chk ok "install-icon: families first, then the colours (no style rows) and the sets of each ticked family, installed ones marked, nothing pre-ticked" || chk fail "install lists: $c1 / $c2 / $c3 ($(calls_n))"
 fam_reset; rm -rf "$FD"/Solo; famrun '^Solo$' -- install | grep -q "Skipping Solo" && [ "$(calls_n)" -eq 1 ] && chk ok "install-icon: a one-set family installs from the first step alone" || chk fail "solo install"
 fam_reset; famrun '^(Col|Solo)( |$)' '^blue' -- remove >/dev/null
 [ ! -e "$FD/Solo" ] && [ ! -e "$FD/Col-blue" ] && [ ! -e "$FD/Col-blue-dark" ] && [ -d "$FD/Col" ] && [ -d "$FD/Col-dark" ] && [ -d "$FD/Multi" ] && [ "$(calls_n)" -eq 2 ] && chk ok "remove-icon: families, then the installed colours of a ticked family; only the ticked ones go" || chk fail "remove grouped: $(ls "$FD" | tr '\n' ' ') calls $(calls_n)"
 fam_reset; famrun -- remove Col-blue >/dev/null; [ ! -e "$FD/Col-blue" ] && [ -d "$FD/Col" ] && [ "$(calls_n)" -eq 0 ] && chk ok "remove-icon <name> skips the menus" || chk fail "direct remove"
 rm -rf "$FD"
+
+# ---- colour swatches in the pickers (truecolor terminal only; checked in a pty with the raw bytes) ----------------------------------------------
+echo "=== swatches"
+cat > "$T/swpty.py" <<'PY'
+import os, pty, select, sys, time, fcntl, termios, struct, re, json
+# swpty.py ROWS COLS KEYS(comma list of q|enter|down|x|text) ENV(json) CMD...: run in a pty, print the raw output
+rows, cols = int(sys.argv[1]), int(sys.argv[2]); seq = sys.argv[3].split(','); env = dict(os.environ); env.update(json.loads(sys.argv[4])); cmd = sys.argv[5:]
+keys = {'down': b'\x1b[B', 'enter': b'\r', 'q': b'q', 'x': b'x'}
+for k in [k for k, v in json.loads(sys.argv[4]).items() if v is None]: env.pop(k, None)
+pid, fd = pty.fork()
+if pid == 0: os.execvpe(cmd[0], cmd, env)
+fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
+out = b''; i = 0; last = time.time(); t0 = last
+while time.time() - t0 < 25:
+    r, _, _ = select.select([fd], [], [], 0.2)
+    if r:
+        try: d = os.read(fd, 8192)
+        except OSError: break
+        if not d: break
+        out += d; last = time.time()
+    elif i < len(seq) and time.time() - last > 0.4: os.write(fd, keys.get(seq[i], seq[i].encode())); i += 1; last = time.time()
+    elif i >= len(seq) and time.time() - last > 3: break
+try: os.kill(pid, 9)
+except Exception: pass
+sys.stdout.buffer.write(out)
+PY
+swp() { python3 -I "$T/swpty.py" "$@"; }
+SWD="$T/sw-themes"; mkdir -p "$SWD"
+raw=$(THEMES_DEST=$SWD swp 30 80 q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1"}' tools/themectl.sh themes install | tr -d '\r')
+printf '%s' "$raw" | grep -qF $'\e[48;2;46;52;64m  \e[0m' && printf '%s' "$raw" | grep -qF $'\e[48;2;136;192;208m  \e[0m' && chk ok "swatches: the theme list shows the scheme background and its default accent before each entry (nordic 2E3440 + 88C0D0)" || chk fail "theme swatches missing"
+raw=$(THEMES_DEST=$SWD swp 30 80 q '{"COLORTERM":null,"TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1"}' tools/themectl.sh themes install | tr -d '\r'); ! printf '%s' "$raw" | grep -qF $'48;2;' && chk ok "swatches: no COLORTERM, no swatches" || chk fail "swatches without COLORTERM"
+raw=$(THEMES_DEST=$SWD swp 30 80 q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":"1","CANDY_PLAIN":"1"}' tools/themectl.sh themes install | tr -d '\r'); ! printf '%s' "$raw" | grep -qF $'48;2;' && chk ok "swatches: NO_COLOR set, no swatches" || chk fail "swatches with NO_COLOR"
+raw=$(COLORTERM=truecolor THEMES_DEST=$SWD tools/themectl.sh themes list </dev/null 2>&1; printf 'q\n' | COLORTERM=truecolor THEMES_DEST=$SWD tools/themectl.sh themes install 2>&1); ! printf '%s' "$raw" | grep -qF $'48;2;' && chk ok "swatches: never in list output or the numbered no-terminal fallback" || chk fail "swatches in plain output"
+raw=$(THEMES_DEST=$SWD swp 12 40 q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1"}' tools/themectl.sh themes install | tr -d '\r' | sed 's/\x1b\[[0-9;?]*[A-Za-z]//g'); wmax=$(printf '%s\n' "$raw" | python3 -I -c 'import sys; print(max([len(l.rstrip("\n")) for l in sys.stdin] or [0]))')
+[ "$wmax" -le 40 ] && chk ok "swatches: rows are cut by visible width (no row wider than the 40-column terminal, widest $wmax)" || chk fail "swatch row too wide: $wmax"
+# the accent submenu and the icon colour picker
+rm -rf "$SWD"; mkdir -p "$SWD"; THEMES_DEST=$SWD tools/themectl.sh themes install nordic >/dev/null 2>&1
+raw=$(THEMES_DEST=$SWD swp 30 80 q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1"}' tools/themectl.sh themes switch nordic | tr -d '\r')
+printf '%s' "$raw" | grep -qF $'\e[48;2;191;97;106m  \e[0m' && chk ok "swatches: the accent submenu shows each accent colour (nordic red BF616A)" || chk fail "accent swatches missing"
+FD2="$T/sw-icons"; mkdir -p "$FD2"/{Col,Col-dark,Col-light,Col-blue,Col-blue-dark,Col-blue-light}; for d in "$FD2"/*; do : > "$d/.candy-for-gnome"; done
+raw=$(ICON_SOURCES="$T/fam.conf" ICONS_DEST="$FD2" swp 30 80 down,enter,q '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1","THEMES_PICKER":"builtin"}' tools/themectl.sh icons switch | tr -d '\r')
+printf '%s' "$raw" | grep -qF $'\e[48;2;52;152;219m  \e[0m' && chk ok "swatches: the icon color picker shows the variant color (blue), the plain default only a blank" || chk fail "icon color swatches missing"
+# gum: the escapes inside an item are drawn, the selection comes back WITHOUT them (as gum 2.0.2 does, checked), and the lookup still finds the entry
+GSB2="$T/gum-strip"; mkdir -p "$GSB2"
+cat > "$GSB2/gum" <<'SH'
+#!/bin/sh
+printf 'CALL\n' >> "$GUMCALLS"; printf '%s\n' "$@" >> "$GUMCALLS"
+pat=$(head -1 "$GUMQ"); sed -i 1d "$GUMQ"
+for a in "$@"; do case "$a" in -*|▸*|◉*|○*) continue ;; esac; if printf '%s' "$a" | grep -Eq "$pat"; then printf '%s\n' "$a" | sed 's/\x1b\[[0-9;]*m//g'; fi; done
+SH
+chmod +x "$GSB2/gum"
+: > "$LOG"; : > "$GC"; printf '%s\n' 'Col' 'blue$' 'dark$' > "$GQ"
+swp 30 80 '' '{"COLORTERM":"truecolor","TERM":"xterm-256color","NO_COLOR":null,"CANDY_PLAIN":"1","THEMES_PICKER":"gum","PATH":"'"$GSB2:$PATH"'","GUMQ":"'"$GQ"'","GUMCALLS":"'"$GC"'","ICON_SOURCES":"'"$T/fam.conf"'","ICONS_DEST":"'"$FD2"'"}' tools/themectl.sh icons switch >/dev/null 2>&1
+grep -qF $'\e[48;2;52;152;219m' "$GC" && grep -q "icon-theme Col-blue-dark" "$LOG" && chk ok "swatches with gum: the item carries the escapes, the stripped selection still maps back to the entry (Col-blue-dark chosen)" || chk fail "gum swatches: $(tr '\n' ';' < "$LOG") $(grep -c 48 "$GC")"
+rm -rf "$FD2" "$SWD"
 
 # ---- message emojis (terminal only; CANDY_FORCE_EMOJI exists for this test) ------------------------------------------------------------------
 echo "=== message emojis"

@@ -142,6 +142,13 @@ app_ready() {     # app_ready APP SCHEME: the installed copy exists and is ours
     if [ -z "$first" ] || ! app_ours "$2" "$first"; then echo "$1 theme not applied: the installed copy of $2 is missing or not ours (run install-theme $2 first)."; return 1; fi
     return 0
 }
+app_create() {    # app_create FILE COMMENT_PREFIX LINES: the config file does not exist, so write it with ONLY the theme lines (no consent needed: nothing of the user's is touched); never overwrites
+    local f="$1" c="$2" txt="$3"
+    [ ! -e "$f" ] && [ ! -L "$f" ] || return 1
+    mkdir -p "$(dirname "$f")"
+    ( set -o noclobber; printf '%s created by candy-for-gnome: only the theme lines below. Edit freely; switch-theme never changes lines you edit.\n%s\n' "$c" "$txt" > "$f" ) 2>/dev/null || return 1
+    echo "Created $f with the theme lines of candy-for-gnome."
+}
 app_offer() {     # app_offer FILE QUESTION PRINT_TEXT EDIT_FUNCTION: ask once (tty), edit on yes; else print the lines to add yourself
     local file="$1" q="$2" txt="$3" fn="$4"
     if [ "$tty_in" = 1 ]; then
@@ -240,7 +247,7 @@ alacritty_switch() {
         app_offer "$f" "Add \"$al_path\" to the import list of $f so Alacritty loads the theme (no other line is touched; a later import overrides these colors)?" \
 "[general]
 import = [ \"$al_path\" ]   # add this element to your existing import list; keep it AFTER other color imports" al_edit
-    else echo "Alacritty: no $f. To use the theme, add to your Alacritty config:"; printf '  [general]\n  import = [ "%s" ]\n' "$al_path"; fi
+    else app_create "$f" '#' "$(printf '[general]\nimport = [ "%s" ]' "$al_path")" || { echo "Alacritty: could not create $f. To use the theme, add to your Alacritty config:"; printf '  [general]\n  import = [ "%s" ]\n' "$al_path"; }; fi
 }
 helix_switch() {
     local s="$1" d f; d=$(app_dir helix); f="$d/config.toml"
@@ -251,7 +258,7 @@ helix_switch() {
         local cur; cur=$(awk 'BEGIN { top = 1 } /^[ \t]*\[/ { top = 0 } top && /^[ \t]*theme[ \t]*=/ { sub(/^[ \t]*theme[ \t]*=[ \t]*/, ""); print; exit }' "$f")
         app_offer "$f" "$( [ -n "$cur" ] && echo "Replace the line 'theme = $cur' in $f with 'theme = \"candy-for-gnome\"'?" || echo "Add 'theme = \"candy-for-gnome\"' at the top of $f?" )" \
 'theme = "candy-for-gnome"' hx_edit
-    else echo "Helix: no $f. To use the theme, put this line in your Helix config:"; echo '  theme = "candy-for-gnome"'; fi
+    else app_create "$f" '#' 'theme = "candy-for-gnome"' || { echo "Helix: could not create $f. To use the theme, put this line in your Helix config:"; echo '  theme = "candy-for-gnome"'; }; fi
 }
 yazi_switch() {
     local s="$1" d f; d=$(app_dir yazi); f="$d/theme.toml"
@@ -263,7 +270,7 @@ yazi_switch() {
 '[flavor]
 dark = "candy-for-gnome-dark"
 light = "candy-for-gnome-light"' yz_edit
-    else echo "Yazi: no $f. To use the flavor, create it with:"; printf '  [flavor]\n  dark = "candy-for-gnome-dark"\n  light = "candy-for-gnome-light"\n'; fi
+    else app_create "$f" '#' "$(printf '[flavor]\ndark = "candy-for-gnome-dark"\nlight = "candy-for-gnome-light"')" || { echo "Yazi: could not create $f. To use the flavor, create it with:"; printf '  [flavor]\n  dark = "candy-for-gnome-dark"\n  light = "candy-for-gnome-light"\n'; }; fi
 }
 kitty_switch() {
     local s="$1"
@@ -281,7 +288,7 @@ bat_switch() {
 '--theme="auto:system"
 --theme-dark="candy-for-gnome-dark"
 --theme-light="candy-for-gnome-light"' bat_edit
-    else echo "bat: no $f. To use the themes, create it with:"; printf '  --theme="auto:system"\n  --theme-dark="candy-for-gnome-dark"\n  --theme-light="candy-for-gnome-light"\n'; fi
+    else app_create "$f" '#' "$(printf -- '--theme="auto:system"\n--theme-dark="candy-for-gnome-dark"\n--theme-light="candy-for-gnome-light"')" || { echo "bat: could not create $f. To use the themes, create it with:"; printf '  --theme="auto:system"\n  --theme-dark="candy-for-gnome-dark"\n  --theme-light="candy-for-gnome-light"\n'; }; fi
 }
 eza_switch() {
     local s="$1" d t a v l; d=$(app_dir eza); l="$d/theme.yml"
@@ -308,7 +315,7 @@ zellij_switch() {
         app_offer "$f" "Set theme_dark \"candy-for-gnome-dark\" and theme_light \"candy-for-gnome-light\" in $f (existing theme_dark / theme_light lines are replaced; your theme line and themes block stay)?" \
 'theme_dark "candy-for-gnome-dark"
 theme_light "candy-for-gnome-light"' zj_edit
-    else echo "zellij: no $f. To use the themes, add to your zellij config:"; printf '  theme_dark "candy-for-gnome-dark"\n  theme_light "candy-for-gnome-light"\n'; fi
+    else app_create "$f" '//' "$(printf 'theme_dark "candy-for-gnome-dark"\ntheme_light "candy-for-gnome-light"')" || { echo "zellij: could not create $f. To use the themes, add to your zellij config:"; printf '  theme_dark "candy-for-gnome-dark"\n  theme_light "candy-for-gnome-light"\n'; }; fi
 }
 claude_ours() { [ -f "$1" ] && grep -q '"name": "candy-for-gnome: ' "$1"; }
 claude_scheme_of() { sed -n 's/.*"name": "candy-for-gnome: \([^ "]*\) .*/\1/p' "$1" | head -n1; }

@@ -30,6 +30,12 @@ Themes go to `~/.themes`, icons to `~/.local/share/icons`, as real copies. Check
 
 The icon menus are grouped: `switch-icon` first asks for the family (Adwaita, Papirus, Tela, WhiteSur, ...), then the color and the style (standard, dark, light) of the sets you installed; `install-icon` and `remove-icon` ask for families first and then the colors of each. A family or color with only one choice skips its step, and a name (`just switch-icon Tela-dark`, `just install-icon WhiteSur-nord`) skips every menu.
 
+When a tool has no config file yet, the installer creates one that holds only the theme lines; an existing config is only changed after you say yes. Install checklists start with nothing ticked; installing a set that is already installed refreshes it.
+
+Every installed folder carries a small `.candy-for-gnome` marker file recording where it came from and when it was installed and last updated.
+
+On a truecolor terminal the menus show a small color square before entries that are colors (accents, icon colors, and background plus accent for themes); `NO_COLOR=1` turns them off.
+
 On a terminal, key messages start with an emoji (✅ installed, 🎨 applied, 🔄 updated, 🧹 removed, ❗ something for you to do, 🟡 warning, ❌ error). Set `CANDY_PLAIN=1` or `NO_EMOJI=1` (any non-empty value, like `NO_COLOR`; the same switch turns them off in the image's `ujust` recipes) to switch them off; piped or captured output never has them.
 
 | Themes | Icons | |
@@ -54,6 +60,42 @@ palettes come from the built-in Ptyxis terminal palettes, so the terminal, the a
 
 Icon sets: Papirus, Gruvbox Plus, Zafiro, candy, Tela, Fluent, Conflux and WhiteSur (all nine colors; sources in `tools/icon-sources.conf`).
 `switch-theme` also selects the matching Ptyxis built-in palette (the light or dark one, by the system setting, for schemes that have two) and the Text Editor color scheme.
+
+## Palettes
+
+The terminal colors of the featured themes (the other themes have the same picture in their folder, `<theme>/palette-dark.svg`):
+
+**nordic**
+
+<img src="nordic/palette-dark.svg" alt="nordic dark palette" width="400">
+
+**gruvbox-material**
+
+<img src="gruvbox-material/palette-dark.svg" alt="gruvbox-material dark palette" width="400"> <img src="gruvbox-material/palette-light.svg" alt="gruvbox-material light palette" width="400">
+
+**everforest**
+
+<img src="everforest/palette-dark.svg" alt="everforest dark palette" width="400"> <img src="everforest/palette-light.svg" alt="everforest light palette" width="400">
+
+**tokyo-night**
+
+<img src="tokyo-night/palette-dark.svg" alt="tokyo-night dark palette" width="400"> <img src="tokyo-night/palette-light.svg" alt="tokyo-night light palette" width="400">
+
+**dracula**
+
+<img src="dracula/palette-dark.svg" alt="dracula dark palette" width="400"> <img src="dracula/palette-light.svg" alt="dracula light palette" width="400">
+
+**fairy-floss**
+
+<img src="fairy-floss/palette-dark.svg" alt="fairy-floss dark palette" width="400">
+
+**catppuccin**
+
+<img src="catppuccin/palette-dark.svg" alt="catppuccin dark palette" width="400"> <img src="catppuccin/palette-light.svg" alt="catppuccin light palette" width="400">
+
+**aubergine**
+
+<img src="aubergine/palette-dark.svg" alt="aubergine dark palette" width="400">
 
 ## Ghostty
 
@@ -101,7 +143,7 @@ the grant is undone when you remove the last theme and icon set. Nothing is wide
 
 `main` is protected. Changes go on a feature branch, into `testing` by pull request, and from `testing` into
 `main` by pull request; CI is the test.
-The contributor workflow and design notes are in `CLAUDE.md`.
+The contributor workflow and design notes are in `CLAUDE.md`. The palette pictures are generated: run `just generate <theme>` after changing a palette.
 
 ## License and credits
 
