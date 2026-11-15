@@ -203,10 +203,10 @@ PY
 
 # ---- featured themes come first in list-theme and the checklists ------------------------------------------------------------
 echo "=== featured themes"
-fl=$(THEMES_DEST="$T/feat" FEATURED_THEMES="dracula nordic nosuch" tools/themectl.sh themes list | head -2 | awk '{print $2}' | tr '\n' ' ')
+fl=$(THEMES_DEST="$T/feat" FEATURED_THEMES="dracula nordic nosuch" tools/themectl.sh themes list | sed 1d | head -2 | awk '{print $2}' | tr '\n' ' ')
 [ "$fl" = "dracula nordic " ] && chk ok "FEATURED_THEMES order is the list order (a missing scheme is skipped)" || chk fail "featured order: $fl"
-rest=$(THEMES_DEST="$T/feat" FEATURED_THEMES="dracula nordic" tools/themectl.sh themes list | sed 1,2d | awk '{print $1}' | grep -vc '★')
-[ "$rest" -ge 1 ] && [ "$(THEMES_DEST="$T/feat" FEATURED_THEMES="dracula nordic" tools/themectl.sh themes list | sed 1,2d | awk '{print $1}' | LC_ALL=C sort -c 2>&1 | wc -l)" -eq 0 ] && chk ok "the other schemes follow alphabetically" || chk fail "rest not alphabetical"
+rest=$(THEMES_DEST="$T/feat" FEATURED_THEMES="dracula nordic" tools/themectl.sh themes list | sed 1,3d | awk '{print $1}' | grep -vc '★')
+[ "$rest" -ge 1 ] && [ "$(THEMES_DEST="$T/feat" FEATURED_THEMES="dracula nordic" tools/themectl.sh themes list | sed 1,3d | awk '{print $1}' | LC_ALL=C sort -c 2>&1 | wc -l)" -eq 0 ] && chk ok "the other schemes follow alphabetically" || chk fail "rest not alphabetical"
 
 # ---- light-only scheme (bluloco-light): gtk.css only, Shell-Light only, switch works under a dark desktop ----------------------------
 echo "=== light-only scheme"
