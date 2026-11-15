@@ -1060,7 +1060,7 @@ c1=$(awk '/^CALL$/ {n++} n==1' "$GC" | grep -v '^CALL$' | grep -E '^(Adwaita|Sol
 [ "$c1" = "Adwaita (GNOME default)|Solo|Col|Multi|" ] && chk ok "the family picker lists Adwaita (GNOME default) first, then only families with an installed set" || chk fail "family list: $c1"
 c2=$(awk '/^CALL$/ {n++} n==2' "$GC" | grep -v '^CALL$' | grep -E '^(default|blue|red)' | tr '\n' '|'); c3=$(awk '/^CALL$/ {n++} n==3' "$GC" | grep -v '^CALL$' | grep -E '^(standard|dark|light)' | tr '\n' '|')
 [ "$c2" = "default|blue|" ] && [ "$c3" = "standard|dark|" ] && chk ok "the colour picker lists only installed colours (default first), the style picker only installed styles" || chk fail "colour/style lists: $c2 / $c3"
-! awk '/^CALL$/ {n++} n>=1' "$GC" | grep -qE '[✅🎨🔄❗🧹❌🟡🔁]' && chk ok "no emoji inside the pickers" || chk fail "emoji in a picker"
+! awk '/^CALL$/ {n++} n>=1' "$GC" | grep -qE '(✅|🎨|🔄|❗|🧹|❌|🟡|🔁)' && chk ok "no emoji inside the pickers" || chk fail "emoji in a picker"
 fam_reset; famrun '^Solo' -- switch >/dev/null
 grep -q "icon-theme Solo" "$LOG" && [ "$(calls_n)" -eq 1 ] && chk ok "a family with one installed set switches without a second menu" || chk fail "solo family: calls $(calls_n)"
 fam_reset; famrun '^Multi' '^Multi-Dark' -- switch >/dev/null
