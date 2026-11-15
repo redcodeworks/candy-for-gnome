@@ -102,12 +102,14 @@ Icon sets (not part of this repository)
   WhiteSur https://github.com/vinceliuice/WhiteSur-icon-theme, GPL-3.0 (COPYING), by Vince Liuice (AUTHORS). Built at install
            time by its own install.sh in a temporary folder and copied from there; nothing of it is committed or redistributed here.
 
+adwaita/zellij: the neutral zellij themes are zellij's own default and default-light themes (zellij-utils/assets/themes in https://github.com/zellij-org/zellij, MIT), renamed to the names the managed config references.
+
 Licences by path
   themes/<Name>/ and assets/   the generated and recoloured theme files derive from the LGPL works above, so they
                    stay under the LGPL: the GTK files LGPL-2.0-or-later (use them under LGPL-2.1-or-later),
                    the GNOME Shell files LGPL-2.1 (version 2.1 only, as in their source header). The LGPL
                    text is the LICENSE file inside each theme folder, so installed copies carry it. Keep
                    the notices in the file headers when you copy the files.
-  everything else  tools/, justfile, README, scheme.toml, palette.toml, accents/ and <scheme>/libadwaita/gtk.css are
+  everything else  tools/, adwaita/ (neutral files; the zellij one is zellij's MIT default), justfile, README, scheme.toml, palette.toml, accents/ and <scheme>/libadwaita/gtk.css are
                    original work under the MIT licence (LICENSE at the repo root). The palette values come
                    from the projects credited above (MIT, Tokyo Night Apache-2.0; Fairy Floss has no licence, Sweet's source is GPL-3.0 and not used, see the entries above).

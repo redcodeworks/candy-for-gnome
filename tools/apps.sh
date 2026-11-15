@@ -343,6 +343,31 @@ claude_remove() {
     fi
     return 0
 }
+claude_adwaita() {   # the theme file is a regular copy made by the installer: delete it only when it carries our marker; settings.json is never touched
+    local d dst; d=$(app_dir claude); dst="$d/themes/candy-for-gnome.json"
+    claude_ours "$dst" || return 0
+    rm -f "$dst"; echo "Removed $dst (Claude Code uses its own theme again)"
+    if [ -f "$d/settings.json" ] && grep -q 'custom:candy-for-gnome' "$d/settings.json"; then echo "Claude Code: $d/settings.json still selects custom:candy-for-gnome (not edited); pick another theme with /theme." >&2; fi
+    return 0
+}
+app_adwaita() {   # switch-theme Adwaita: for every installed app that has a MANAGED link, copy the neutral files of adwaita/ and retarget the links (nothing is created or asked, no user config is edited)
+    local a l t src dst any
+    for a in "${app_names[@]}"; do
+        app_present "$a" || continue
+        if [ "$a" = claude ]; then claude_adwaita; continue; fi
+        any=0; while IFS='|' read -r l t; do if app_link_ours "$l"; then any=1; fi; done < <(app_links "$a" adwaita)
+        [ "$any" = 1 ] || continue
+        while IFS='|' read -r src dst; do
+            pty_may_touch adwaita Replace "$dst" || continue
+            mkdir -p "$(dirname "$dst")"
+            if [ -d "$src" ]; then rm -rf "$dst"; cp -r "$src" "$dst"; else cp "$src" "$dst"; fi
+        done < <(app_targets "$a" adwaita)
+        while IFS='|' read -r l t; do if app_link_ours "$l"; then ln -sfn "$t" "$l"; fi; done < <(app_links "$a" adwaita)
+        [ "$a" != bat ] || app_bat_cache
+        echo "$a is now neutral (its managed link points at a neutral file of this repo, so $a uses its own defaults; switch-theme <scheme> points it back)."
+    done
+    return 0
+}
 app_switch() {    # app_switch SCHEME: every installed app
     local s="$1" a
     for a in "${app_names[@]}"; do app_present "$a" && "${a}_switch" "$s"; done

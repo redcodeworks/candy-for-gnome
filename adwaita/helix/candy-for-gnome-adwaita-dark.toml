@@ -1,0 +1,3 @@
+# candy-for-gnome: adwaita
+# Neutral Helix theme: inherits the built-in default theme (an empty theme file would give no colors at all).
+inherits = "default"
