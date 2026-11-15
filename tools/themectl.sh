@@ -57,7 +57,7 @@ echo() {
     case "$1" in
         Refused:\ *|Could\ not\ *|install.sh\ failed*|install.sh\ did\ not*|No\ accent\ map*|usage:\ *|*\ is\ not\ a\ theme\ here*|*\ is\ not\ an\ icon\ set\ here*|*\ is\ not\ an\ accent\ of\ *) e=❌ ;;
         WARNING:\ *|warning:\ *|Note:\ *|*\ not\ applied*|Left\ *\ alone*|Not\ switching\ the\ *|Skipping\ *) e=🟡 ;;
-        Installed\ *) e=✅ ;;
+        Installed\ *|Created\ *) e=✅ ;;
         Updated\ *|Replaced\ *|Edited\ *) e=🔄 ;;
         Removed\ *) e=🧹 ;;
         Accent:\ *|*\ is\ now\ *|*\ are\ now\ *|Ptyxis\ palette\ key\ reads\ *) e=🎨 ;;
@@ -818,7 +818,7 @@ gh_switch() {    # point Ghostty at the scheme: link the pair file, ask once abo
     conf=$(gh_conf_file)
     if [ -n "$conf" ] && gh_line_in "$conf"; then :
     elif [ -z "$conf" ]; then
-        echo "Ghostty: no config.ghostty or config in $gh_dir. To use the theme, put this line in your Ghostty config:"; echo "  $gh_line"
+        app_create "$gh_dir/config.ghostty" '#' "$gh_line" || { echo "Ghostty: could not create $gh_dir/config.ghostty. To use the theme, put this line in your Ghostty config:"; echo "  $gh_line"; }
     elif [ "$tty_in" = 1 ]; then
         read -r -u 3 -p "Add the line '$gh_line' to $conf so Ghostty loads the theme (no other line is touched; the theme line it includes overrides a theme= line there)? [y/N] " a || a=n
         case "$a" in
@@ -1046,16 +1046,14 @@ icon_folder_item() {   # icon_folder_item NAME: "<item index>|<folder>" when NAM
     return 1
 }
 icons_pick_many() {   # icons_pick_many install|remove: families first, then the colours or sets of each ticked family; sets chosen (item indexes)
-    local mode="$1" n lab ni any_inst=0 fkeys=() j k m fam_ticked=() c
+    local mode="$1" n lab ni fkeys=() j k m fam_ticked=() c
     pm_labels=(); pm_on=()
-    for j in "${!items[@]}"; do is_installed "${items[j]}" && any_inst=1; done
     for n in "${src_names[@]}"; do
         fam_members "$n"; [ "${#fam_idx[@]}" -gt 0 ] || continue
         fam_members "$n" installed; ni=${#fam_idx[@]}
         if [ "$mode" = remove ] && [ "$ni" -eq 0 ]; then continue; fi
         lab=$(fam_name "$n"); if [ "$mode" = install ] && [ "$ni" -gt 0 ]; then lab="✓ $lab"; fi
         fkeys+=("$n"); pm_labels+=("$lab")
-        if [ "$mode" = install ] && { [ "$ni" -gt 0 ] || { [ "$any_inst" -eq 0 ] && [ "$n" = papirus ]; }; }; then pm_on[${#pm_labels[@]}-1]=1; fi
     done
     [ "${#fkeys[@]}" -gt 0 ] || { chosen=(); return 0; }
     if [ "$mode" = install ]; then pick_many_label "Icon families to install into $dest"; else pick_many_label "Icon families to remove from $dest"; fi
@@ -1065,15 +1063,10 @@ icons_pick_many() {   # icons_pick_many install|remove: families first, then the
         if [ "$mode" = remove ]; then fam_members "$n" installed; else fam_members "$n"; fi
         local mem=("${fam_idx[@]}")
         if [ "${#mem[@]}" -eq 1 ]; then out+=("${mem[0]}"); continue; fi
-        pm_labels=(); pm_on=(); any=0
-        for j in "${mem[@]}"; do is_installed "${items[j]}" && any=1; done
+        pm_labels=(); pm_on=()
         for k in "${!mem[@]}"; do
             j="${mem[k]}"; if fam_script "$n"; then lab=$(colour_label "${items[j]}"); else lab="${items[j]}"; fi
-            if [ "$mode" = install ] && is_installed "${items[j]}"; then lab="✓ $lab"; pm_on[k]=1
-            elif [ "$mode" = install ] && [ "$any" -eq 0 ]; then
-                if fam_script "$n"; then [ "${i_var[${items[j]}]:-}" = standard ] && pm_on[k]=1
-                else case "${items[j]}" in Papirus|Papirus-Dark) pm_on[k]=1 ;; esac; fi
-            fi
+            if [ "$mode" = install ] && is_installed "${items[j]}"; then lab="✓ $lab"; fi
             pm_labels+=("$lab")
         done
         if fam_script "$n"; then c="colors"; else c="sets"; fi
@@ -1161,15 +1154,11 @@ case "$action" in
         if [ -n "$want" ]; then
             i=$(resolve); chosen=("$i")
         else
-            # themes: every box starts off; icons: installed sets ticked, else Papirus
+            # nothing is pre-ticked (themes and icons): an installed set is only marked with a check mark, and installing it again refreshes it
             for i in "${!items[@]}"; do on[i]=0; done
-            if [ "$kind" = icons ]; then
-                any=0; for i in "${!items[@]}"; do if is_installed "${items[i]}"; then on[i]=1; any=1; fi; done
-                if [ "$any" -eq 0 ]; then for i in "${!items[@]}"; do case "${items[i]}" in Papirus|Papirus-Dark) on[i]=1 ;; esac; done; fi
-            fi
             if [ "$kind" = icons ] && icons_grouped; then icons_pick_many install
             else
-                if [ "$kind" = icons ]; then for i in "${!items[@]}"; do if [ "${on[i]}" -eq 1 ] && is_installed "${items[i]}"; then labels[i]="✓ ${labels[i]}"; fi; done; fi
+                if [ "$kind" = icons ]; then for i in "${!items[@]}"; do if is_installed "${items[i]}"; then labels[i]="✓ ${labels[i]}"; fi; done; fi
                 choose_many "${noun^}s to install into $dest" "${!items[@]}"
             fi
         fi
