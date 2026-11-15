@@ -344,7 +344,7 @@ src_index() {    # src_index ITEM FOLDER: our source's index.theme for that fold
 }
 is_ours() {      # is_ours DIR SRC_INDEX
     [ -d "$1" ] || return 1
-    [ -f "$1/$marker" ] && return 0
+    marker_present "$1" && return 0
     [ -f "$1/$old_marker" ] && return 1     # installed under the old name: never ours, not even by index.theme
     [ -n "${2:-}" ] && [ -f "$2" ] && [ -f "$1/index.theme" ] && cmp -s "$2" "$1/index.theme"
 }
@@ -362,7 +362,33 @@ may_touch() {
     echo "Refused: $d exists and was not installed by candy-for-gnome; left alone (FORCE=1 replaces it, or run in a terminal to be asked)." >&2
     return 1
 }
-mark_dir() { printf '%s\n' "$2" > "$1/$marker"; }
+# The marker file is `key=value` lines (schema=1, kind, name, folder, variant, style, source, source_commit, installed_at, updated_at, installer). A
+# one-line bare marker from earlier versions (just the name) still counts as ours and reads as the name; the next install or update of that folder
+# rewrites it in the new format. ONE reader for all of it: marker_present (is it ours) and marker_read DIR KEY.
+marker_present() { [ -f "$1/$marker" ]; }
+marker_read() {   # marker_read DIR KEY: the value (empty when absent); a legacy bare marker answers `name` with its line and nothing else
+    local f="$1/$marker"
+    [ -f "$f" ] || return 0
+    if ! grep -q '=' "$f"; then [ "$2" = name ] && head -n1 "$f" | tr -d '\r'; return 0; fi
+    sed -n "s/^$2=//p" "$f" | head -n1 | tr -d '\r'
+}
+now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+mark_old=""   # installed_at of the marker that was replaced (the caller reads it before it removes the old folder)
+mark_dir() {   # mark_dir DIR ITEM FOLDER: write the marker (name = what the bare marker held)
+    local d="$1" it="$2" f="$3" n kd src url sc="" var="" sty="" inst now
+    now=$(now_utc); inst="${mark_old:-$now}"
+    if [ "$kind" = themes ]; then
+        kd=theme; url=$(git -C "$root" remote get-url origin 2>/dev/null || echo https://github.com/redcodeworks/candy-for-gnome); sc=$(git -C "$root" rev-parse HEAD 2>/dev/null || true)
+    else
+        kd=icon; src="${i_src[$it]:-}"; url="${src_url[$src]:-}"
+        [ -n "$src" ] && sc=$(git -C "$(clone_of "$src")" rev-parse HEAD 2>/dev/null || true)
+        if is_script "$it" 2>/dev/null; then var="${i_var[$it]:-}"; sty=$(style_label "$it" "$f"); fi
+    fi
+    {
+        printf 'schema=1\nkind=%s\nname=%s\nfolder=%s\nvariant=%s\nstyle=%s\n' "$kd" "$it" "$f" "$var" "$sty"
+        printf 'source=%s\nsource_commit=%s\ninstalled_at=%s\nupdated_at=%s\ninstaller=%s\n' "$url" "$sc" "$inst" "$now" "$(git -C "$root" rev-parse --short=12 HEAD 2>/dev/null || true)"
+    } > "$d/$marker"
+}
 adw_label="Adwaita (GNOME default)"; items_adw=0
 add_adwaita() {   # switch and list only: the GNOME default as the first entry (nothing is installed or removed for it; it is the system's own)
     items=(Adwaita "${items[@]}"); labels=("$adw_label" "${labels[@]}"); items_adw=1
@@ -909,6 +935,7 @@ copy_folder() {  # replace folder $1 of item $2 in dest: remove the set's folder
     local f="$1" it="$2" c
     mkdir -p "$dest"
     if ! may_touch "$dest/$f" "$(src_index "$it" "$f")" Replace; then skipped+=("$f"); return 1; fi
+    mark_old=$(marker_read "$dest/$f" installed_at)
     rm -rf "${dest:?}/$f"
     if [ "$kind" = themes ]; then
         cp -a "$root/$it/themes/$f" "$dest/$f"
@@ -925,7 +952,7 @@ copy_folder() {  # replace folder $1 of item $2 in dest: remove the set's folder
         esac
         gtk-update-icon-cache -q -f -t "$dest/$f" 2>/dev/null || true
     fi
-    mark_dir "$dest/$f" "$it"
+    mark_dir "$dest/$f" "$it" "$f"; mark_old=""
     if [ "$kind" = themes ]; then apply_accent "$it" "$(current_accent "$it")" "$f"; fi
     installed_n=$((installed_n+1)); echo "Installed $f -> $dest/$f"
 }
@@ -937,10 +964,11 @@ copy_item() {
     if [ -n "$build_dir" ]; then   # hidden shared bases the build produced (Fluent's .Fluent-base ...): replaced too
         for h in "$build_dir"/.[!.]*; do
             [ -d "$h" ] || continue; b=$(basename "$h")
+            mark_old=$(marker_read "$dest/$b" installed_at)
             # a base is ours when marked, or when one of this set's own folders was ours before this run (it links into the base)
-            if [ -e "$dest/$b" ] && [ ! -f "$dest/$b/$marker" ] && [ "$mine" -eq 1 ]; then rm -rf "${dest:?}/$b"
+            if [ -e "$dest/$b" ] && ! marker_present "$dest/$b" && [ "$mine" -eq 1 ]; then rm -rf "${dest:?}/$b"
             elif ! may_touch "$dest/$b" "" Replace; then continue; else rm -rf "${dest:?}/$b"; fi
-            cp -a "$h" "$dest/$b"; mark_dir "$dest/$b" "$1"; echo "Installed $b (shared base)"
+            cp -a "$h" "$dest/$b"; mark_dir "$dest/$b" "$1" "$b"; mark_old=""; echo "Installed $b (shared base)"
         done
     fi
     finish_item
