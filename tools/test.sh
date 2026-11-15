@@ -284,7 +284,7 @@ out=$(THEMES_DEST=$L just install-theme dracula </dev/null 2>&1)
 [ ! -e "$L/Dracula/stale.txt" ] && [ -f "$L/Dracula/.candy-for-gnome" ] && ! printf '%s\n' "$out" | grep -q "not installed by" && chk ok "a pre-marker installation (identical index.theme) is adopted" || chk fail "legacy installation not adopted"
 O="$T/guard-oldname"; mkdir -p "$O"; cp -a dracula/themes/Dracula "$O/Dracula"; echo dracula > "$O/Dracula/.gnome-themes"; echo stale > "$O/Dracula/stale.txt"
 out=$(THEMES_DEST=$O just install-theme dracula </dev/null 2>&1)
-[ -f "$O/Dracula/stale.txt" ] && [ ! -f "$O/Dracula/.candy-for-gnome" ] && [ "$(printf '%s\n' "$out" | grep -c 'installed under the old project name')" = 1 ] && chk ok "old-name marker: folder not adopted, one leftover message" || chk fail "old-name marker folder was adopted or message count wrong"
+[ -f "$O/Dracula/stale.txt" ] && [ ! -f "$O/Dracula/.candy-for-gnome" ] && ! printf '%s\n' "$out" | grep -qi 'old project name\|leftover' && chk ok "old-name marker: folder not adopted, and no message about it" || chk fail "old-name marker folder was adopted or a message was printed"
 if command -v script >/dev/null 2>&1; then
     I="$T/guard-ask"; mkdir -p "$I/Dracula"; echo mine > "$I/Dracula/mine.txt"
     printf 'n\n' | script -qec "THEMES_DEST=$I tools/themectl.sh themes install dracula" /dev/null >/dev/null 2>&1

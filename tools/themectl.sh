@@ -104,20 +104,10 @@ case "$kind" in
     *) echo "usage: themectl.sh <themes|icons> <install|list|update|remove|switch> [name] [accent]   (themectl.sh help for details)"; exit 2 ;;
 esac
 
-# ---- leftovers of the old project name ---------------------------------------------------------------------
-# This project was called gnome-themes; its folders carry the marker file .gnome-themes. They are not ours any more (never replaced,
-# removed or adopted by this script): print one message and let the user remove them. Nothing is deleted here.
+# ---- folders of the old project name ------------------------------------------------------------------------
+# This project was called gnome-themes; its folders carry the marker file .gnome-themes. They are not ours any more: never replaced, removed or adopted by
+# this script (see is_ours). No message is printed about them.
 old_marker=.gnome-themes
-old_leftovers() {
-    local m d list=() quoted=()
-    [ -d "$dest" ] || return 0
-    for m in "$dest"/*/"$old_marker"; do [ -f "$m" ] && list+=("$(basename "$(dirname "$m")")"); done
-    [ ${#list[@]} -gt 0 ] || return 0
-    for d in "${list[@]}"; do quoted+=("$(printf '%q' "$dest/$d")"); done
-    echo "Found ${#list[@]} folder(s) in $dest installed under the old project name (gnome-themes): ${list[*]}."
-    echo "They are leftovers: candy-for-gnome does not manage them. To remove them: rm -rf ${quoted[*]}"
-}
-old_leftovers
 
 # ---- accents (themes only) -----------------------------------------------------------------------------------
 # state file lines: key=value
