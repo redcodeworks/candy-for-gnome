@@ -164,7 +164,7 @@ choose_accent() {
 # Themes are copied straight from the checkout this script lives in (no cache, no network on install).
 # Icon sets come from the external repos listed in tools/icon-sources.conf (name|url|layout|extra), each with a
 # shallow clone under $cache/icons/<source>. Layouts: top (top-level dirs with index.theme are the sets), root (the
-# repo root is the set), script (sets are built by the upstream install.sh, one variant per set, in a temp dir).
+# repo root is the set), script and script-t (sets are built by the upstream install.sh, one variant per set, in a temp dir).
 # The registry DECLARES every set name (column 4), so listing needs no clone; a source is cloned only when one of its
 # sets is installed or updated, and then checked against its declaration (warnings only, see verify_source).
 conf="${ICON_SOURCES:-$root/tools/icon-sources.conf}"
@@ -206,6 +206,12 @@ verify_source() {  # compare the clone of source $1 with the sets the registry d
         root)
             nm=$(set_name "$d" "${src_extra[$n]}")
             if [ ! -f "$d/index.theme" ] || [ "$nm" != "${src_extra[$n]}" ]; then echo "warning: $n: registry says ${src_extra[$n]}, upstream has no ${src_extra[$n]}" >&2; fi ;;
+        script-t)   # install.sh -t VARIANT: every registry variant must be a case label of the script (standard = default)
+            if [ ! -x "$d/install.sh" ]; then echo "warning: $n: registry says install.sh, upstream has no executable install.sh" >&2
+            else for t in ${src_extra[$n]}; do
+                [ "$t" = standard ] && t=default
+                grep -qE "^[[:space:]]*$t\)" "$d/install.sh" || echo "warning: $n: registry says $t, upstream has no $t" >&2
+            done; fi ;;
     esac
     return 0
 }
@@ -266,7 +272,7 @@ load_items() {
             case "${src_layout[$n]}" in
                 top) for t in ${src_extra[$n]}; do add_item "${t#*=}" "$n" "${t%%=*}" ""; done ;;
                 root) add_item "${src_extra[$n]}" "$n" "" "" ;;
-                script) base="${n^}"
+                script|script-t) base="${n^}"
                         for v in ${src_extra[$n]}; do
                             if [ "$v" = standard ]; then add_item "$base" "$n" "" "$v"; else add_item "$base-$v" "$n" "" "$v"; fi
                         done ;;
@@ -275,24 +281,29 @@ load_items() {
         done
     fi
 }
+is_script() { case "${src_layout[${i_src[$1]}]}" in script|script-t) return 0 ;; *) return 1 ;; esac; }   # sets built by the upstream install.sh
 folders_of() {   # installable folder names of item $1 (exactly these: never a glob, so removing Tela keeps Tela-blue)
     if [ "$kind" = themes ]; then for d in "$root/$1"/themes/*/; do d="${d%/}"; echo "${d##*/}"; done
-    elif [ "${src_layout[${i_src[$1]}]}" = script ]; then echo "$1"; echo "$1-dark"; echo "$1-light"
+    elif is_script "$1"; then echo "$1"; echo "$1-dark"; echo "$1-light"
     else echo "$1"; fi
 }
 build_dir=""
 prepare_item() { # icons, script layout: run the upstream install.sh for the variant into a temp dir (never the real destination)
     [ "$kind" = icons ] || return 0
-    [ "${src_layout[${i_src[$1]}]}" = script ] || return 0
-    local d f; d=$(clone_of "${i_src[$1]}"); build_dir=$(mktemp -d)
-    echo "Building $1 with the upstream install.sh (variant ${i_var[$1]}) ..."
-    (cd "$d" && ./install.sh -d "$build_dir" "${i_var[$1]}" >/dev/null 2>&1) || { echo "install.sh failed for $1" >&2; return 1; }
+    is_script "$1" || return 0
+    local d f v; d=$(clone_of "${i_src[$1]}"); build_dir=$(mktemp -d); v="${i_var[$1]}"
+    echo "Building $1 with the upstream install.sh (variant $v) ..."
+    if [ "${src_layout[${i_src[$1]}]}" = script-t ]; then   # WhiteSur style: -n NAME -t VARIANT, the blue one is "default"
+        if [ "$v" = standard ]; then v=default; fi
+        (cd "$d" && ./install.sh -d "$build_dir" -n "${i_src[$1]^}" -t "$v" >/dev/null 2>&1) || { echo "install.sh failed for $1" >&2; return 1; }
+    else (cd "$d" && ./install.sh -d "$build_dir" "$v" >/dev/null 2>&1) || { echo "install.sh failed for $1" >&2; return 1; }
+    fi
     while read -r f; do [ -d "$build_dir/$f" ] || { echo "install.sh did not produce $f" >&2; return 1; }; done < <(folders_of "$1")
 }
 shared_bases() {  # hidden base dirs (e.g. .Fluent-base) that the installed folders of item $1 link into
     local f
     while read -r f; do [ -d "$dest/$f" ] && find "$dest/$f" -type l -printf '%l\n' 2>/dev/null; done < <(folders_of "$1") \
-        | sed -n 's|^\(\.\./\)\{1,\}\(\.[^/][^/]*\)/.*|\2|p' | sort -u || true
+        | sed -n 's|^\(\.\./\)\{1,\}\(\.[^./][^/]*\)/.*|\2|p' | sort -u || true
 }
 finish_item() { if [ -n "$build_dir" ]; then rm -rf "${build_dir:?}"; build_dir=""; fi; }
 # ---- collision guard -----------------------------------------------------------------------------
@@ -305,7 +316,7 @@ src_index() {    # src_index ITEM FOLDER: our source's index.theme for that fold
     case "${src_layout[${i_src[$1]}]}" in
         top)    echo "$(clone_of "${i_src[$1]}")/${i_dir[$1]}/index.theme" ;;
         root)   echo "$(clone_of "${i_src[$1]}")/index.theme" ;;
-        script) [ -n "$build_dir" ] && echo "$build_dir/$2/index.theme" || echo "" ;;
+        script|script-t) [ -n "$build_dir" ] && echo "$build_dir/$2/index.theme" || echo "" ;;
     esac
 }
 is_ours() {      # is_ours DIR SRC_INDEX
@@ -873,7 +884,7 @@ copy_folder() {  # replace folder $1 of item $2 in dest: remove the set's folder
         case "${src_layout[${i_src[$it]}]}" in
             top) cp -a "$c/${i_dir[$it]}" "$dest/$f" ;;
             root) mkdir -p "$dest/$f"; (cd "$c" && tar cf - --exclude=./.git --exclude=./.github --exclude='./preview*' --exclude='./README*' --exclude=./update.sh --exclude=./images --exclude=./CONTRIBUTING.md --exclude=./.gitignore .) | tar xf - -C "$dest/$f" ;;
-            script) cp -a "$build_dir/$f" "$dest/$f" ;;
+            script|script-t) cp -a "$build_dir/$f" "$dest/$f" ;;
         esac
         gtk-update-icon-cache -q -f -t "$dest/$f" 2>/dev/null || true
     fi

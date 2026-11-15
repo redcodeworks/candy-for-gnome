@@ -99,6 +99,8 @@ Icon sets (not part of this repository)
            LICENSE file names no copyright holder; this attribution follows the repository owner and its CREDITS.md, which
            also credits the icon packs some icons derive from). Cloned at install time only; GPL-3.0 does not conflict with this
            repository's MIT tooling because the two are never combined or redistributed together.
+  WhiteSur https://github.com/vinceliuice/WhiteSur-icon-theme, GPL-3.0 (COPYING), by Vince Liuice (AUTHORS). Built at install
+           time by its own install.sh in a temporary folder and copied from there; nothing of it is committed or redistributed here.
 
 Licences by path
   themes/<Name>/ and assets/   the generated and recoloured theme files derive from the LGPL works above, so they
