@@ -914,7 +914,6 @@ gh_status() {    # a line for list-themes, only when the Ghostty config director
 . "$root/tools/apps.sh"
 
 # ---- Flatpak access (themes and icons: grant after switch-theme, undo after the last removal) -------------------
-# shellcheck disable=SC2088  # the tilde is literal on purpose: flatpak stores and shows the entry as ~/.themes
 fp_paths=(xdg-config/gtk-3.0:ro xdg-config/gtk-4.0:ro xdg-data/icons:ro '~/.themes:ro')   # literal tilde, as flatpak stores it; the only entries candy-for-gnome ever manages
 fp_state="$state/flatpak-overrides"
 fp_have() { flatpak override --user --show 2>/dev/null | sed -n 's/^filesystems=//p' | tr ';' '\n' | grep -vx '' || true; }
