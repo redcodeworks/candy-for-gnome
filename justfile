@@ -90,6 +90,8 @@ generate theme="all":
         python3 -I tools/eza-gen.py "$d" >/dev/null
         python3 -I tools/zellij-gen.py "$d" >/dev/null
         python3 -I tools/claude-gen.py "$d" >/dev/null
+        python3 -I tools/kde-gen.py "$d" >/dev/null
+        python3 -I tools/qtct-gen.py "$d" >/dev/null
         python3 -I tools/palette-svg-gen.py "$d" >/dev/null
         python3 -I tools/theme-readme-gen.py "$d" >/dev/null
         rm -rf "$acc"

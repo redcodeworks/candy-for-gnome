@@ -70,7 +70,7 @@ chmod +x "$T/bin/dconf"
 unset COLORTERM; export NO_COLOR=1   # no swatches in the pty tests that read the picker text (the swatch tests set their own environment)
 export CANDY_PLAIN=1   # the pty tests read the text of the messages: emojis stay off unless the emoji tests unset this themselves
 export THEMES_PICKER=builtin THEMES_SWITCH_AFTER_INSTALL=0   # tests choose the picker explicitly (a developer machine may have gum) and enable the switch menu after an install only in their own pty tests
-export PTYXIS_PALETTES="$T/ptyxis-palettes" GTKSOURCEVIEW_STYLES="$T/gsv-styles" FLATPAK_APPS="$T/var-app"
+export PTYXIS_PALETTES="$T/ptyxis-palettes" GTKSOURCEVIEW_STYLES="$T/gsv-styles" FLATPAK_APPS="$T/var-app" KDE_COLOR_SCHEMES="$T/kde-schemes"
 export CANDY_FOR_GNOME_BREW_BIN="$T/nobrew" CANDY_FOR_GNOME_APPS_PATH="$T/noapps"   # no Homebrew bin dir and no PATH search (the container may ship bat): the per-app themes see only what a test points the knobs at
 export PATH="$T/bin:$PATH" XDG_CONFIG_HOME="$T/cfg" XDG_STATE_HOME="$T/state" CANDY_FOR_GNOME_CACHE="$T/cache"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -92,7 +92,9 @@ fi
 [ "$1" = override ] && [ "$2" = --user ] || exit 2
 shift 2
 for a in "$@"; do case "$a" in
-  --show) printf '[Context]\nfilesystems=%s\n' "$(tr '\n' ';' < "$db")" ;;
+  --show) printf '[Context]\nfilesystems=%s\n' "$(tr '\n' ';' < "$db")"; [ -s "$db.env" ] && { printf '\n[Environment]\n'; cat "$db.env"; } ;;
+  --env=*) v="${a#--env=}"; touch "$db.env"; grep -v "^${v%%=*}=" "$db.env" > "$db.env.new" || true; echo "$v" >> "$db.env.new"; mv "$db.env.new" "$db.env" ;;
+  --unset-env=*) v="${a#--unset-env=}"; touch "$db.env"; grep -v "^$v=" "$db.env" > "$db.env.new" || true; echo "$v=" >> "$db.env.new"; mv "$db.env.new" "$db.env" ;;
   --filesystem=*) v="${a#--filesystem=}"; grep -qxF "$v" "$db" || echo "$v" >> "$db" ;;
   --nofilesystem=*) v="${a#--nofilesystem=}"; awk -v v="$v" '{p=$0; sub(/:[a-z]+$/,"",p)} p!=v' "$db" > "$db.new"; mv "$db.new" "$db" ;;
 esac; done
@@ -914,23 +916,49 @@ reg=$(grep '^conflux|' tools/icon-sources.conf)
 out=$(ICON_SOURCES="$PWD/tools/icon-sources.conf" CANDY_FOR_GNOME_CACHE="$T/cache2" just list-icons 2>&1)
 printf '%s\n' "$out" | grep -q 'Conflux' && [ ! -e "$T/cache2/icons" ] && chk ok "list-icons with the shipped registry shows Conflux without cloning" || chk fail "list-icons lacks Conflux"
 
+# ---- KDE color schemes and qtct palettes (pilot: featured schemes) ----------------------------------------------------------------
+echo "=== kde colors and qtct palettes"
+KT="$T/themes-kde"; KG="$XDG_CONFIG_HOME/kdeglobals"; rm -rf "$KT" "$KDE_COLOR_SCHEMES" "$XDG_CONFIG_HOME/qt6ct" "$XDG_CONFIG_HOME/qt5ct" "$KG" "$KG.bak"
+sel() { sed -n '/^\[Colors:Selection\]/,/^$/p' "$1" | sed -n 's/^BackgroundNormal=//p'; }   # the Selection background of a .colors or kdeglobals file
+kdef=$(sel themes/gruvbox-material/kde/candy-for-gnome-gruvbox-material-dark.colors)
+out=$(THEMES_DEST=$KT just install-theme gruvbox-material </dev/null 2>&1)
+[ -f "$KDE_COLOR_SCHEMES/candy-for-gnome-gruvbox-material-dark.colors" ] && [ -f "$KDE_COLOR_SCHEMES/candy-for-gnome-gruvbox-material-light.colors" ] && [ ! -e "$XDG_CONFIG_HOME/qt6ct" ] && [ ! -e "$XDG_CONFIG_HOME/qt5ct" ] && chk ok "kde: install copies both variants into color-schemes and creates no qt5ct/qt6ct directory" || chk fail "kde install ($out)"
+printf '[General]\nColorScheme=noctalia\nName=noctalia\nfont=Mine,10\n\n[Colors:Window]\nBackgroundNormal=1,2,3\n' > "$KG"; cp "$KG" "$T/kg.orig"
+out=$(THEMES_DEST=$KT just switch-theme gruvbox-material </dev/null 2>&1)
+cmp -s "$KG" "$T/kg.orig" && printf '%s\n' "$out" | grep -q "Left .*kdeglobals alone" && chk ok "kde: a kdeglobals not written by candy-for-gnome (Noctalia) is left alone with a message and how to hand it over" || chk fail "kde foreign kdeglobals touched ($out)"
+out=$(FORCE=1 THEMES_DEST=$KT just switch-theme gruvbox-material </dev/null 2>&1)
+head -1 "$KG" | grep -qx '# candy-for-gnome: gruvbox-material' && cmp -s "$KG.bak" "$T/kg.orig" && grep -qx 'font=Mine,10' "$KG" && grep -qx 'ColorScheme=candy-for-gnome-gruvbox-material-dark' "$KG" && ! grep -q noctalia "$KG" && [ "$(grep -c '^\[Colors:Window\]' "$KG")" = 1 ] && [ "$(sel "$KG")" = "$kdef" ] && printf '%s\n' "$out" | grep -qF "To undo: cp $KG.bak $KG" && chk ok "kde: FORCE=1 (or y) takes the file over: backup kept, our groups and ColorScheme in, other lines kept, undo line printed" || chk fail "kde takeover ($(cat "$KG"))"
+out=$(THEMES_DEST=$KT just switch-theme gruvbox-material red </dev/null 2>&1)
+[ "$(sel "$KG")" != "$kdef" ] && [ "$(sel "$KG")" = "$(sel "$KDE_COLOR_SCHEMES/candy-for-gnome-gruvbox-material-dark.colors")" ] && grep -qx 'font=Mine,10' "$KG" && [ "$(grep -c '^\[Colors:Window\]' "$KG")" = 1 ] && chk ok "kde: our own kdeglobals is refreshed without a question, the chosen accent is the Selection color, other lines stay" || chk fail "kde ours merge ($(sel "$KG"))"
+mkdir -p "$XDG_CONFIG_HOME/qt6ct"
+THEMES_DEST=$KT just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+q="$XDG_CONFIG_HOME/qt6ct/colors/candy-for-gnome-gruvbox-material-dark.conf"
+[ -f "$q" ] && [ ! -e "$XDG_CONFIG_HOME/qt5ct" ] && head -1 "$q" | grep -qx '# candy-for-gnome: gruvbox-material' && [ "$(grep '^active_colors=' "$q" | tr ',' '\n' | wc -l)" = 22 ] && ! grep -qi '#7daea3' "$q" && grep -qi '#ea6962' "$q" && chk ok "qtct: palettes are written only where the config directory exists, 22 colors per palette, the chosen accent applied" || chk fail "qtct ($(head -8 "$q" 2>&1))"
+cp "$KG" "$T/kg.before"; out=$(THEMES_DEST=$KT just switch-theme monokai </dev/null 2>&1)
+! ls "$KDE_COLOR_SCHEMES" | grep -q monokai && cmp -s "$KG" "$T/kg.before" && chk ok "kde: a scheme outside the pilot installs and writes nothing (kdeglobals unchanged)" || chk fail "kde out-of-scope scheme wrote files ($out)"
+THEMES_DEST=$KT just install-theme gruvbox-material </dev/null >/dev/null 2>&1; THEMES_DEST=$KT just switch-theme gruvbox-material </dev/null >/dev/null 2>&1
+out=$(THEMES_DEST=$KT just remove-theme gruvbox-material </dev/null 2>&1)
+[ ! -e "$KDE_COLOR_SCHEMES/candy-for-gnome-gruvbox-material-dark.colors" ] && [ ! -e "$q" ] && grep -qx 'font=Mine,10' "$KG" && ! grep -q 'Colors:Window\|ColorScheme' "$KG" && cmp -s "$KG.bak" "$T/kg.orig" && chk ok "kde: remove-theme deletes our files, strips our groups from kdeglobals (other lines and the backup stay)" || chk fail "kde remove ($(cat "$KG" 2>&1 | head -5))"
+rm -rf "$KT" "$KDE_COLOR_SCHEMES" "$XDG_CONFIG_HOME/qt6ct" "$KG" "$KG.bak"
+
 # ---- Flatpak access: grant after a y, record only what was added, undo only that ------------------------------------------------
 echo "=== flatpak access"
 FS="$T/themes-fp"; FI="$T/icons-fp"; fpst="$XDG_STATE_HOME/candy-for-gnome/flatpak-overrides"; rm -f "$fpst"
 export FP_PATH="$T/fpbin:$PATH"
 fpshow() { sort "$FLATPAK_DB" | tr '\n' ' '; }
+fpall() { printf '%s\n' xdg-config/gtk-3.0:ro xdg-config/gtk-4.0:ro xdg-data/icons:ro '~/.themes:ro' xdg-config/kdeglobals:ro xdg-data/color-schemes:ro | sort | tr '\n' ' '; }   # every filesystem entry candy-for-gnome manages
 # without a terminal: nothing changes, the exact command is printed
-: > "$FLATPAK_DB"
+: > "$FLATPAK_DB"; rm -f "$FLATPAK_DB.env"
 out=$(PATH="$FP_PATH" THEMES_DEST=$FS just install-theme fairy-floss </dev/null 2>&1; PATH="$FP_PATH" THEMES_DEST=$FS just switch-theme fairy-floss </dev/null 2>&1)
-[ ! -s "$FLATPAK_DB" ] && [ ! -e "$fpst" ] && printf '%s\n' "$out" | grep -qF "flatpak override --user --filesystem=xdg-config/gtk-3.0:ro --filesystem=xdg-config/gtk-4.0:ro --filesystem=xdg-data/icons:ro --filesystem=~/.themes:ro" && chk ok "no terminal: sandbox untouched, exact command printed" || chk fail "no-terminal flatpak case"
+[ ! -s "$FLATPAK_DB" ] && [ ! -e "$fpst" ] && printf '%s\n' "$out" | grep -qF "flatpak override --user --filesystem=xdg-config/gtk-3.0:ro --filesystem=xdg-config/gtk-4.0:ro --filesystem=xdg-data/icons:ro --filesystem=~/.themes:ro --filesystem=xdg-config/kdeglobals:ro --filesystem=xdg-data/color-schemes:ro --env=QT_QPA_PLATFORMTHEME=kde" && printf '%s\n' "$out" | grep -qF -- "--unset-env=QT_QPA_PLATFORMTHEME" && [ ! -e "$FLATPAK_DB.env" ] && chk ok "no terminal: sandbox untouched, exact command (KDE entries and the lowercase variable included) and its undo printed" || chk fail "no-terminal flatpak case"
 if command -v script >/dev/null 2>&1; then
     # a pre-existing entry; answer n, then y
     : > "$FLATPAK_DB"; echo "xdg-config/gtk-4.0:ro" > "$FLATPAK_DB"
     printf 'n\n' | PATH="$FP_PATH" THEMES_DEST=$FS script -qec "tools/themectl.sh themes switch fairy-floss magenta" /dev/null > "$T/fp.out" 2>&1
     [ "$(fpshow)" = "xdg-config/gtk-4.0:ro " ] && [ ! -e "$fpst" ] && grep -q "Allow read-only access to these folders for all Flatpaks" "$T/fp.out" && chk ok "answer n: nothing granted or recorded; the prompt text" || chk fail "flatpak n case ($(fpshow))"
     printf 'y\n' | PATH="$FP_PATH" THEMES_DEST=$FS script -qec "tools/themectl.sh themes switch fairy-floss magenta" /dev/null >/dev/null 2>&1
-    [ "$(fpshow)" = "xdg-config/gtk-3.0:ro xdg-config/gtk-4.0:ro xdg-data/icons:ro ~/.themes:ro " ] && chk ok "answer y: the missing entries were granted" || chk fail "flatpak y grant ($(fpshow))"
-    [ "$(sort "$fpst" | tr '\n' ' ')" = "xdg-config/gtk-3.0:ro xdg-data/icons:ro ~/.themes:ro " ] && chk ok "only the entries candy-for-gnome added are recorded (the pre-existing one is not)" || chk fail "record: $(cat "$fpst" 2>/dev/null | tr '\n' ' ')"
+    [ "$(fpshow)" = "$(fpall)" ] && grep -qx 'QT_QPA_PLATFORMTHEME=kde' "$FLATPAK_DB.env" && chk ok "answer y: the missing entries and QT_QPA_PLATFORMTHEME=kde (lowercase) were granted" || chk fail "flatpak y grant ($(fpshow))"
+    [ "$(sort "$fpst" | tr '\n' ' ')" = "$(printf '%s\n' xdg-config/gtk-3.0:ro xdg-data/icons:ro '~/.themes:ro' xdg-config/kdeglobals:ro xdg-data/color-schemes:ro env:QT_QPA_PLATFORMTHEME | sort | tr '\n' ' ')" ] && chk ok "only the entries candy-for-gnome added are recorded (the pre-existing one is not)" || chk fail "record: $(cat "$fpst" 2>/dev/null | tr '\n' ' ')"
     # a second switch finds nothing missing: no prompt
     printf 'y\n' | PATH="$FP_PATH" THEMES_DEST=$FS script -qec "tools/themectl.sh themes switch fairy-floss magenta" /dev/null > "$T/fp.out" 2>&1
     grep -q "Allow read-only access" "$T/fp.out" && chk fail "prompted although everything is granted" || chk ok "nothing missing: no prompt"
@@ -939,15 +967,24 @@ if command -v script >/dev/null 2>&1; then
     printf 'y\n' | PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS script -qec "tools/themectl.sh themes remove fairy-floss" /dev/null > "$T/fp.out" 2>&1
     [ -s "$fpst" ] && ! grep -q "Remove the Flatpak read access" "$T/fp.out" && chk ok "removing the last theme while an icon set remains does not ask" || chk fail "undo asked too early"
     printf 'n\n' | PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS script -qec "tools/themectl.sh icons remove Fake-Dark" /dev/null > "$T/fp.out" 2>&1
-    grep -q "Remove the Flatpak read access that candy-for-gnome added" "$T/fp.out" && [ -s "$fpst" ] && [ "$(fpshow)" = "xdg-config/gtk-3.0:ro xdg-config/gtk-4.0:ro xdg-data/icons:ro ~/.themes:ro " ] && chk ok "removing the last set asks; n keeps access and record" || chk fail "undo n case"
+    grep -q "Remove the Flatpak read access that candy-for-gnome added" "$T/fp.out" && [ -s "$fpst" ] && [ "$(fpshow)" = "$(fpall)" ] && chk ok "removing the last set asks; n keeps access and record" || chk fail "undo n case"
     PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS just install-icon Fake-Dark </dev/null >/dev/null 2>&1
     out=$(PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS just remove-icon Fake-Dark </dev/null 2>&1)
-    printf '%s\n' "$out" | grep -qF "flatpak override --user --nofilesystem=xdg-config/gtk-3.0 --nofilesystem=xdg-data/icons --nofilesystem=~/.themes" && ! printf '%s\n' "$out" | grep -q "nofilesystem=xdg-config/gtk-4.0" && [ -s "$fpst" ] && chk ok "no terminal: the undo commands for exactly the recorded entries are printed, nothing removed" || chk fail "undo no-terminal case"
+    printf '%s\n' "$out" | grep -qF "flatpak override --user --nofilesystem=xdg-config/gtk-3.0 --nofilesystem=xdg-data/icons --nofilesystem=~/.themes" && printf '%s\n' "$out" | grep -qF -- "--unset-env=QT_QPA_PLATFORMTHEME" && ! printf '%s\n' "$out" | grep -q "nofilesystem=xdg-config/gtk-4.0" && [ -s "$fpst" ] && chk ok "no terminal: the undo commands for exactly the recorded entries are printed, nothing removed" || chk fail "undo no-terminal case"
     PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS just install-icon Fake-Dark </dev/null >/dev/null 2>&1
     printf 'y\n' | PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS script -qec "tools/themectl.sh icons remove Fake-Dark" /dev/null >/dev/null 2>&1
-    [ "$(fpshow)" = "xdg-config/gtk-4.0:ro " ] && [ ! -e "$fpst" ] && chk ok "answer y: exactly the recorded entries are removed (the pre-existing one stays), record cleared" || chk fail "undo y case ($(fpshow))"
+    [ "$(fpshow)" = "xdg-config/gtk-4.0:ro " ] && [ ! -e "$fpst" ] && grep -qx 'QT_QPA_PLATFORMTHEME=' "$FLATPAK_DB.env" && chk ok "answer y: exactly the recorded entries are removed (the pre-existing one stays, the variable is unset), record cleared" || chk fail "undo y case ($(fpshow))"
+    # nox case: everything already set by hand: nothing missing, no prompt, nothing recorded
+    PATH="$FP_PATH" THEMES_DEST=$FS just install-theme fairy-floss </dev/null >/dev/null 2>&1
+    fpall | tr ' ' '\n' | grep -v '^$' > "$FLATPAK_DB"; echo 'QT_QPA_PLATFORMTHEME=kde' > "$FLATPAK_DB.env"; rm -f "$fpst"
+    out=$(PATH="$FP_PATH" THEMES_DEST=$FS just switch-theme fairy-floss </dev/null 2>&1)
+    printf '%s\n' "$out" | grep -q "GTK theme is now" && ! printf '%s\n' "$out" | grep -q "Flatpak sandbox" && [ ! -e "$fpst" ] && chk ok "KDE entries and the variable already present (set by hand): seen as done, no prompt, nothing recorded" || chk fail "present entries not recognized ($out)"
+    # a different value (uppercase KDE forces Breeze Dark): reported, never changed
+    echo 'QT_QPA_PLATFORMTHEME=KDE' > "$FLATPAK_DB.env"
+    out=$(PATH="$FP_PATH" THEMES_DEST=$FS just switch-theme fairy-floss </dev/null 2>&1)
+    printf '%s\n' "$out" | grep -q "sets QT_QPA_PLATFORMTHEME=KDE" && [ "$(cat "$FLATPAK_DB.env")" = "QT_QPA_PLATFORMTHEME=KDE" ] && chk ok "another value of the variable is reported and left alone" || chk fail "other variable value ($out)"
 else echo "  skip flatpak prompt tests (script not installed)"; fi
-rm -rf "$FS" "$FI" "$fpst"; : > "$FLATPAK_DB"
+rm -rf "$FS" "$FI" "$fpst"; : > "$FLATPAK_DB"; rm -f "$FLATPAK_DB.env"
 
 # ---- checklist UI (pty): SPACE toggles, ENTER confirms, q cancels, preselection shown ---------------------------
 echo "=== checklist (pty)"
