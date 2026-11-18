@@ -168,8 +168,8 @@ for s in $loop_schemes; do
     echo "=== loop $s"
     D="$LT/themes-$s"; THEMES_DEST=$D just install-theme "$s" >/dev/null 2>&1
     n=$(ls "$D" 2>/dev/null | wc -l); [ "$n" -ge 1 ] && chk ok "install-theme: $n folders" || chk fail "install-theme produced nothing"
-    kdok=1; for f in $(ls "themes/$s/kde"); do [ -f "$KDE_COLOR_SCHEMES/$f" ] || kdok=0; done
-    [ "$kdok" = 1 ] && [ -n "$(ls "themes/$s/kde" 2>/dev/null)" ] && chk ok "install-theme: the KDE color scheme file(s) of $s are installed" || chk fail "KDE color schemes of $s missing after install-theme"
+    kdok=1; kdn=0; for f in themes/$s/kde/*; do kdn=$((kdn+1)); [ -f "$KDE_COLOR_SCHEMES/${f##*/}" ] || kdok=0; done
+    [ "$kdok" = 1 ] && [ "$kdn" -ge 1 ] && chk ok "install-theme: the KDE color scheme file(s) of $s are installed" || chk fail "KDE color schemes of $s missing after install-theme"
     gt=$(awk -F'"' '/^gtk_name/ {print $2}' "themes/$s/palette.toml")
     [ -f "$D/$gt/gtk-3.0/assets/check-symbolic.svg" ] && [ -f "$D/$gt/gtk-4.0/assets/check-symbolic.svg" ] && [ ! -L "$D/$gt/gtk-3.0/assets" ] && chk ok "installed theme is complete: real assets directories in gtk-3.0 and gtk-4.0" || chk fail "installed $gt lacks its assets"
     for a in $(grep -v '^#' "themes/$s/accents/list" | awk 'NF {print $1}'); do
@@ -181,7 +181,7 @@ for s in $loop_schemes; do
     h1=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum); THEMES_DEST=$D just update-theme >/dev/null 2>&1; h2=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum)   # the marker carries updated_at, which moves on purpose
     [ "$h1" = "$h2" ] && chk ok "update-theme keeps the remembered accent" || chk fail "update-theme changed the installed tree"
     THEMES_DEST=$D just remove-theme "$s" >/dev/null 2>&1; [ -z "$(ls -A "$D" 2>/dev/null)" ] && chk ok "remove-theme emptied the set" || chk fail "remove-theme left $(ls "$D" | tr '\n' ' ')"
-    kdok=1; for f in $(ls "themes/$s/kde"); do [ -e "$KDE_COLOR_SCHEMES/$f" ] && kdok=0; done
+    kdok=1; for f in themes/$s/kde/*; do [ -e "$KDE_COLOR_SCHEMES/${f##*/}" ] && kdok=0; done
     [ "$kdok" = 1 ] && chk ok "remove-theme removed the KDE color scheme file(s)" || chk fail "KDE color schemes of $s left after remove-theme"
 done
 [ "$LT" != "$T" ] && rm -rf "${LT:?}"
@@ -995,6 +995,11 @@ if command -v script >/dev/null 2>&1; then
     out=$(THEMES_TARGETS=nosuch THEMES_DEST=$ST just switch-theme gruvbox-material blue </dev/null 2>&1); printf '%s\n' "$out" | grep -q "unknown or inapplicable" && chk ok "an unknown THEMES_TARGETS id is refused" || chk fail "bad target id accepted"
     THEMES_DEST=$ST just remove-theme gruvbox-material </dev/null >/dev/null 2>&1; rm -rf "$ST" "$KDE_COLOR_SCHEMES" "$KG" "$KG.bak" "$XDG_CONFIG_HOME/ghostty"
 else echo "  skip switch checklist tests (script not installed)"; fi
+
+# generated KDE and qtct files are committed and in sync for EVERY scheme (selftest checks their content per scheme in scope; the other generators
+# are covered by the regeneration above); the two generators are fast, so one pass over all schemes
+for d in themes/*/; do python3 -I tools/kde-gen.py "${d%/}" >/dev/null; python3 -I tools/qtct-gen.py "${d%/}" >/dev/null; done
+[ -z "$(git status --porcelain -- 'themes/*/kde' 'themes/*/qtct')" ] && chk ok "kde and qtct files of every scheme are in sync with their generators" || chk fail "kde/qtct files are stale: $(git status --porcelain -- 'themes/*/kde' 'themes/*/qtct' | head -3 | tr '\n' ' ')"
 
 # ---- Flatpak access: grant after a y, record only what was added, undo only that ------------------------------------------------
 echo "=== flatpak access"
