@@ -12,6 +12,13 @@
 # config directory exists (nothing is created for software that is not there) and qt5ct.conf/qt6ct.conf are never edited (a hint prints).
 kde_dir="${KDE_COLOR_SCHEMES:-${XDG_DATA_HOME:-$HOME/.local/share}/color-schemes}"
 kde_globals="${KDEGLOBALS:-$cfg/kdeglobals}"
+kde_qt_used() {   # kde_qt_used qt5ct|qt6ct: is the tool in USE? Its config file exists or its binary is found. A bare colors/ folder is no signal (Noctalia's old template and earlier runs left some).
+    [ -f "$cfg/$1/$1.conf" ] && return 0
+    if [ -n "${CANDY_FOR_GNOME_APPS_PATH+x}" ]; then
+        local d IFS=:; for d in $CANDY_FOR_GNOME_APPS_PATH; do [ -x "$d/$1" ] && return 0; done
+    elif command -v "$1" >/dev/null 2>&1; then return 0; fi
+    [ -x "$app_brew/$1" ]
+}
 kde_has() { [ -n "$(ls "$(sdir "$1")/kde" 2>/dev/null)" ]; }   # does scheme $1 have KDE files (a fixture folder without them is skipped)
 kde_variant() {   # kde_variant SCHEME: dark or light by the system colour scheme; the other one when the scheme has only that variant
     local w o=light; w=$(pty_mode); [ "$w" = light ] && o=dark
@@ -36,20 +43,21 @@ kde_targets() {   # kde_targets SCHEME: "<source>|<destination>" of every file t
     kde_has "$s" || return 0
     if sw_on kde; then for f in "$(sdir "$s")"/kde/*.colors; do echo "$f|$kde_dir/$(basename "$f")"; done; fi
     for q in qt5ct qt6ct; do
-        [ -d "$cfg/$q" ] && sw_on qtct || continue
+        kde_qt_used "$q" && sw_on qtct || continue
         for f in "$(sdir "$s")"/qtct/*.conf; do echo "$f|$cfg/$q/colors/$(basename "$f")"; done
     done
     return 0
 }
 kde_put() { local src="$1" dst="$2" s="$3" v; mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; v="${src##*-}"; v="${v%%.*}"; kde_accent "$dst" "$s" "$v"; }
 kde_install() {   # install-theme and the first step of switch-theme
-    local s="$1" src dst n=0
+    local s="$1" src dst n=0 nq=0
     kde_has "$s" || return 0
     while IFS='|' read -r src dst; do
         pty_may_touch "$s" Replace "$dst" || continue
-        kde_put "$src" "$dst" "$s"; n=$((n+1))
+        kde_put "$src" "$dst" "$s"; case "$dst" in "$kde_dir"/*) n=$((n+1)) ;; *) nq=$((nq+1)) ;; esac
     done < <(kde_targets "$s")
-    [ "$n" -eq 0 ] || echo "Installed $n KDE color scheme and qtct palette file(s) of $s ($kde_dir, qt5ct/qt6ct colors)."
+    [ "$n" -eq 0 ] || echo "[kde] installed $s"
+    [ "$nq" -eq 0 ] || echo "[qtct] installed $s"
     return 0
 }
 kde_ours_globals() { [ -f "$kde_globals" ] && { head -n1 "$kde_globals" | grep -qE '^# candy-for-gnome: [A-Za-z0-9._-]+[[:space:]]*$' || grep -qE '^ColorScheme=candy-for-gnome-' "$kde_globals"; }; }
@@ -78,7 +86,7 @@ kde_merge() {   # kde_merge MODE SCHEME COLORS_FILE: write kdeglobals (apply: ou
               if (last != "" && last !~ /^#/) print ""
               for (i = 1; i <= no; i++) printf "%s", blk[order[i]] }
     ' "$new" "$kde_globals" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
-    if [ "$mode" = strip ] && ! grep -qE '^[[:space:]]*[^#[:space:]]' "$tmp"; then rm -f "$kde_globals" "$tmp"; echo "Removed $kde_globals (nothing but our colors was in it)."; return 0; fi
+    if [ "$mode" = strip ] && ! grep -qE '^[[:space:]]*[^#[:space:]]' "$tmp"; then rm -f "$kde_globals" "$tmp"; return 0; fi
     cat "$tmp" > "$kde_globals" && rm -f "$tmp"
 }
 kde_switch() {    # switch-theme: make the installed color scheme the live one, hint for qtct
@@ -87,29 +95,34 @@ kde_switch() {    # switch-theme: make the installed color scheme the live one, 
     v=$(kde_variant "$s"); c="$kde_dir/candy-for-gnome-$s-$v.colors"
     if sw_on kde; then kde_globals_switch "$s" "$v" "$c"; fi
     for q in qt5ct qt6ct; do
-        [ -d "$cfg/$q" ] && sw_on qtct || continue
+        kde_qt_used "$q" && sw_on qtct || continue
         f="$cfg/$q/colors/candy-for-gnome-$s-$v.conf"; [ -e "$f" ] || continue
-        echo "Next: in $q (Appearance, Palette: Custom) pick candy-for-gnome-$s-$v, or set color_scheme_path=$f and custom_palette=true under [Appearance] in $cfg/$q/$q.conf (not edited here)."
+        echo "[$q] updated candy-for-gnome-$s-$v.conf with $s"; reload_list+=("qt apps")
+        grep -qs "color_scheme_path=.*candy-for-gnome-$s-$v\.conf" "$cfg/$q/$q.conf" || echo "[$q] pick candy-for-gnome-$s-$v in Appearance, Palette: Custom ($q.conf is not edited here)"
     done
-    if sw_on kde || sw_on qtct; then echo "Restart KDE and Qt apps to pick up the colors (they read kdeglobals when they start)."; fi
     return 0
 }
 kde_globals_switch() {    # kde_globals_switch SCHEME VARIANT COLORS_FILE: the kdeglobals handling of switch-theme (rules in the header)
     local s="$1" v="$2" c="$3" ask=n
+    local err retry; retry=$(retry_cmd kde "$s" "${accent_pick:-}")
     if ! pty_ours "$s" "$c"; then echo "KDE colors not applied: $c is missing or not ours (run install-theme $s first)."; return 0; fi
-    mkdir -p "$(dirname "$kde_globals")"
+    if ! err=$(mkdir -p "$(dirname "$kde_globals")" 2>&1); then tfail kde kde kdeglobals "create the directory of $kde_globals" "$err" "$retry"; return 0; fi
     if [ ! -e "$kde_globals" ]; then
-        : > "$kde_globals"; kde_merge apply "$s" "$c" && echo "Created $kde_globals with the colors of $s ($v). To undo: just remove-theme $s (or delete the file)."
+        if ! err=$( { : > "$kde_globals"; } 2>&1 ) || ! err=$(kde_merge apply "$s" "$c" 2>&1); then tfail kde kde kdeglobals "write the colors of $s into $kde_globals" "$err" "$retry"; return 0; fi
+        echo "[kde] updated kdeglobals with $s"; reload_list+=("kde apps")
     elif kde_ours_globals; then
-        kde_merge apply "$s" "$c" && echo "Updated $kde_globals with the colors of $s ($v). To undo: just remove-theme $s"
+        if ! err=$(kde_merge apply "$s" "$c" 2>&1); then tfail kde kde kdeglobals "merge the colors of $s into $kde_globals" "$err" "$retry"; return 0; fi
+        echo "[kde] updated kdeglobals with $s"; reload_list+=("kde apps")
     else
         if [ "${FORCE:-}" = 1 ]; then ask=y
         elif [ "$tty_in" = 1 ]; then
             read -r -u 3 -p "$kde_globals was not written by candy-for-gnome (for example by Noctalia's KDE template, which rewrites it again later). Replace its color groups with the theme's? The old file is kept as kdeglobals.bak. [y/N] " ask || ask=n
         fi
         case "$ask" in
-            [yY]*) cp -L --backup=numbered "$kde_globals" "$kde_globals.bak" && kde_merge apply "$s" "$c" \
-                       && echo "Replaced the color groups in $kde_globals with the colors of $s ($v). To undo: cp $kde_globals.bak $kde_globals" ;;
+            [yY]*) if err=$(cp -L --backup=numbered "$kde_globals" "$kde_globals.bak" 2>&1 && kde_merge apply "$s" "$c" 2>&1); then
+                       echo "[kde] updated kdeglobals with $s"; reload_list+=("kde apps")
+                       echo "Old $kde_globals kept as $kde_globals.bak (undo: cp $kde_globals.bak $kde_globals)"
+                   else tfail kde kde kdeglobals "back up and merge the colors of $s into $kde_globals" "$err" "$retry"; fi ;;
             *) echo "Left $kde_globals alone: it was not written by candy-for-gnome, so KDE and Kirigami apps keep its colors. To hand it over, turn off the program that writes it (Noctalia: its KDE template) and run switch-theme in a terminal and answer y (or FORCE=1)." >&2 ;;
         esac
     fi
@@ -130,17 +143,21 @@ kde_refresh() {   # update-theme: refresh the installed copies that are ours, an
 kde_unglobals() {   # kde_unglobals [SCHEME]: strip our groups from kdeglobals (only when ours, and only for SCHEME when given)
     kde_ours_globals || return 0
     [ -z "${1:-}" ] || [ "$(kde_globals_scheme)" = "$1" ] || return 0
-    kde_merge strip "${1:-x}" && { [ ! -e "$kde_globals" ] || echo "Removed the candy-for-gnome colors from $kde_globals (other settings kept)."; }
-    [ ! -e "$kde_globals.bak" ] || echo "Note: $kde_globals.bak still holds the file as it was before candy-for-gnome (restore: cp $kde_globals.bak $kde_globals)."
+    if kde_merge strip "${1:-x}"; then kde_stripped=1; [ -n "${kde_quiet:-}" ] || echo "[kde] removed kdeglobals colors"
+    else echo "Could not update kdeglobals for [kde]: removing our color groups from $kde_globals failed. Edit the file yourself, or restore the backup: cp $kde_globals.bak $kde_globals" >&2; fi
+    [ ! -e "$kde_globals.bak" ] || echo "Note: $kde_globals.bak still holds the file as it was before candy-for-gnome (restore: cp $kde_globals.bak $kde_globals)." >&2
     return 0
 }
 kde_remove() {    # remove-theme: marked files of this scheme, and our colors in kdeglobals when it names this scheme
-    local s="$1" src dst
+    local s="$1" src dst n=0 nq=0
     kde_has "$s" || return 0
-    kde_unglobals "$s"
+    kde_stripped=0; kde_quiet=1; kde_unglobals "$s"; kde_quiet=""
     while IFS='|' read -r src dst; do
         [ -e "$dst" ] || continue
-        if pty_ours "$s" "$dst"; then rm -f "$dst"; echo "Removed $dst"; else echo "Left $dst alone (not installed by candy-for-gnome)." >&2; fi
+        if pty_ours "$s" "$dst"; then rm -f "$dst"; case "$dst" in "$kde_dir"/*) n=$((n+1)) ;; *) nq=$((nq+1)) ;; esac
+        else echo "Left $dst alone (not installed by candy-for-gnome)." >&2; fi
     done < <(kde_targets "$s")
+    if [ "$n" -gt 0 ] || [ "$kde_stripped" = 1 ]; then echo "[kde] removed $s"; fi
+    [ "$nq" -eq 0 ] || echo "[qtct] removed $s"
     return 0
 }

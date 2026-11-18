@@ -59,9 +59,12 @@ echo() {
     case "$1" in
         Refused:\ *|Could\ not\ *|install.sh\ failed*|install.sh\ did\ not*|No\ accent\ map*|usage:\ *|*\ is\ not\ a\ theme\ here*|*\ is\ not\ an\ icon\ set\ here*|*\ is\ not\ an\ accent\ of\ *) e=❌ ;;
         WARNING:\ *|warning:\ *|skipped:\ *|Note:\ *|*\ not\ applied*|Left\ *\ alone*|Not\ switching\ the\ *|Skipping\ *) e=🟡 ;;
-        Installed\ *|Created\ *) e=✅ ;;
+        Installed\ *|Created\ *|\[*\]\ installed\ *) e=✅ ;;
         Updated\ *|Replaced\ *|Edited\ *) e=🔄 ;;
-        Removed\ *) e=🧹 ;;
+        Removed\ *|\[*\]\ removed\ *) e=🧹 ;;
+        \[*\]\ updated\ *) e=🎨 ;;
+        \[*\]\ pick\ *|[0-9]*\ target*\ failed:\ *) e=❗ ;;
+        reload\ or\ restart:\ *) e=🔁 ;;
         Accent:\ *|*\ is\ now\ *|*\ are\ now\ *|Ptyxis\ palette\ key\ reads\ *) e=🎨 ;;
         Restart\ GTK\ apps*) e=🔁 ;;
         Ghostty\ has\ no\ auto-reload*|Claude\ Code:\ select\ it\ with*|Next:\ run\ *|Not\ switching.\ To\ switch\ later*|Ptyxis:\ *\ Run\ switch-theme\ again*) e=❗ ;;
@@ -70,6 +73,26 @@ echo() {
 }
 if [ "${GSETTINGS_BACKEND:-}" = keyfile ]; then unset GSETTINGS_BACKEND; echo "Note: GSETTINGS_BACKEND=keyfile ignored (GNOME reads dconf)."; fi
 set -euo pipefail
+# One line per app on success, `[<app>] updated <file or setting> with <scheme>` (installed / removed for the other commands; the emoji comes from the
+# case in echo above). A failure is descriptive and goes to stderr; the rest of the switch carries on and one summary line names the failed targets.
+failed_targets=(); reload_list=(); rm_t=0
+tfail() {   # tfail TARGET APP WHAT ATTEMPT ERROR RETRY: what was attempted, the tool's own error text, a likely reason, the exact command to retry
+    local t="$1" app="$2" what="$3" attempt="$4" err="$5" retry="$6" why=""
+    case "$err" in
+        *"Permission denied"*|*"ermission"*) why="no permission to write there" ;;
+        *"Not a directory"*|*"No such file"*) why="the directory, or a parent of it, is missing or is not a directory" ;;
+        *"File exists"*) why="a file is in the way of a directory that must be created" ;;
+        *"Read-only"*) why="the file system is read-only" ;;
+        *"not found"*) why="the tool is not installed" ;;
+    esac
+    failed_targets+=("$t")
+    echo "Could not update $what for [$app]: $attempt." >&2
+    echo "  error: ${err:-no error text from the tool}" >&2
+    [ -z "$why" ] || echo "  likely: $why." >&2
+    echo "  retry: $retry" >&2
+    return 0
+}
+retry_cmd() { echo "THEMES_TARGETS=$1 just switch-theme ${2:-<scheme>}${3:+ $3} --yes"; }   # retry_cmd TARGET SCHEME ACCENT
 
 # the guard asks on a copy of the original stdin (fd 3): the loops below read their own input from process substitutions
 tty_in=0; if [ -t 0 ]; then tty_in=1; exec 3<&0; fi
@@ -726,13 +749,12 @@ pty_mode() {  # dark or light, from the system colour scheme (prefer-dark = dark
     esac
 }
 pty_switch() {   # set the palette id on the default profile and on every profile that already has a palette key
-    local s="$1" id lt mode uuids u def sel=() done_n=0 got known
+    local s="$1" id lt mode uuids u def sel=() done_n=0 got known err bad=0
     id=$(pty_toml "$s" ptyxis); lt=$(pty_toml "$s" ptyxis_light)
     [ -n "$id" ] || { echo "Ptyxis palette not applied: $s declares no \`ptyxis\` id in its scheme.toml."; return 0; }
     if [ -n "$lt" ] && [ "$lt" != "$id" ]; then
         mode=$(pty_mode)
         if [ "$mode" = light ]; then id="$lt"; fi
-        echo "Ptyxis: $s has a separate palette per mode; the system colour scheme reads as $mode, so the palette id is '$id'. Run switch-theme again after changing between light and dark to pick the other one."
     fi
     command -v dconf >/dev/null 2>&1 || { echo "Ptyxis palette not applied: dconf not found. Pick the built-in with id '$id' in Ptyxis > Preferences > Palette."; return 0; }
     uuids=$(dconf read /org/gnome/Ptyxis/profile-uuids 2>/dev/null | dq || true)
@@ -748,11 +770,14 @@ pty_switch() {   # set the palette id on the default profile and on every profil
         [ -n "$(dconf read "/org/gnome/Ptyxis/Profiles/$u/palette" 2>/dev/null || true)" ] && sel+=("$u")
     done
     for u in "${sel[@]}"; do
-        dconf write "/org/gnome/Ptyxis/Profiles/$u/palette" "'$id'" && done_n=$((done_n+1))
+        if ! err=$(dconf write "/org/gnome/Ptyxis/Profiles/$u/palette" "'$id'" 2>&1); then
+            tfail ptyxis ptyxis palette "dconf write /org/gnome/Ptyxis/Profiles/$u/palette '$id'" "$err" "$(retry_cmd ptyxis "$s" "${accent_pick:-}")"; bad=1; continue
+        fi
         got=$(dconf read "/org/gnome/Ptyxis/Profiles/$u/palette" 2>/dev/null || true)
-        echo "Ptyxis palette key reads $got (profile $u)"
+        if [ "$got" = "'$id'" ]; then done_n=$((done_n+1))
+        else echo "WARNING: [ptyxis] palette of profile $u reads '${got:-nothing}' after setting '$id'. Pick '$id' in Ptyxis > Preferences > Palette." >&2; fi
     done
-    echo "Ptyxis palette id is now '$id' (Ptyxis built-in) on $done_n profile(s) (the default one, plus those that already had a palette set)."
+    [ "$done_n" -eq 0 ] || [ "$bad" -eq 1 ] || echo "[ptyxis] updated palette with $s"
     if known=$(python3 -I "$root/tools/ptyxis-ids.py" ids 2>/dev/null); then
         printf '%s\n' "$known" | grep -qxF -- "$id" || echo "WARNING: '$id' is not a built-in palette id of the installed Ptyxis; Ptyxis would fall back to its default palette (ids are case-sensitive; see tools/ptyxis-ids.py list)."
     else echo "Note: the Ptyxis binary could not be read, so the id was not checked against its built-in palettes."; fi
@@ -773,7 +798,7 @@ gsv_install() {  # gsv_install SCHEME: copy the style schemes into every styles 
             mkdir -p "$d"; cp "$troot/$s/gtksourceview/$f" "$d/$f"; n=$((n+1))
         done < <(gsv_files "$s")
     done < <(gsv_dirs)
-    if [ "$n" -gt 0 ]; then echo "Installed GtkSource style scheme(s) of $s ($n file(s); editors: $gsv_dir and installed Flatpak editors)."; fi
+    if [ "$n" -gt 0 ]; then echo "[gtksourceview] installed $s"; fi
 }
 gsv_refresh() {  # update: refresh only the files that exist and are ours
     local s="$1" d f
@@ -785,14 +810,15 @@ gsv_refresh() {  # update: refresh only the files that exist and are ours
     return 0
 }
 gsv_remove() {
-    local s="$1" d f
+    local s="$1" d f n=0
     while read -r d; do
         while read -r f; do
             [ -e "$d/$f" ] || continue
             pty_may_touch "$s" Remove "$d/$f" || continue
-            rm -f "$d/$f"; echo "Removed $d/$f"
+            rm -f "$d/$f"; n=$((n+1))
         done < <(gsv_files "$s")
     done < <(gsv_dirs)
+    if [ "$n" -gt 0 ]; then echo "[gtksourceview] removed $s"; fi
     return 0
 }
 gsv_flatpak() { command -v flatpak >/dev/null 2>&1 && flatpak info "$1" >/dev/null 2>&1; }   # is this app an installed Flatpak?
@@ -800,11 +826,12 @@ gsv_set_flatpak() {   # gsv_set_flatpak APP SCHEMA KEY ID LABEL: set the key in 
     local app="$1" schema="$2" key="$3" id="$4" label="$5" got
     flatpak run --command=gsettings "$app" set "$schema" "$key" "$id" </dev/null >/dev/null 2>&1 || true
     got=$(flatpak run --command=gsettings "$app" get "$schema" "$key" </dev/null 2>/dev/null | tr -d "'") || got=""
-    if [ "$got" = "$id" ]; then echo "$label (Flatpak) style scheme is now $id."
+    if [ "$got" = "$id" ]; then echo "[$(echo "$label" | tr "A-Z " "a-z-")] updated style-scheme with ${gsv_scheme:-$id}"
     else echo "WARNING: $label (Flatpak) style scheme reads '${got:-nothing}' after setting '$id'. Pick \"$id\" in its preferences."; fi
 }
 gsv_switch() {   # point Text Editor (and Builder when present) at the scheme's style scheme for the current light/dark mode
-    local s="$1" id="" dark=1 f base
+    local s="$1" id="" dark=1 f base err
+    gsv_scheme="$s"
     [ -n "$(gsv_files "$s")" ] || return 0
     base="dark"; [ -f "$troot/$s/gtksourceview/candy-for-gnome-$s-dark.xml" ] || base="light"     # light-only scheme: only the -light id exists
     [ -f "$gsv_dir/candy-for-gnome-$s-$base.xml" ] && pty_ours "$s" "$gsv_dir/candy-for-gnome-$s-$base.xml" || { echo "GtkSource style scheme not applied: the installed copy is missing or not ours."; return 0; }
@@ -816,7 +843,8 @@ gsv_switch() {   # point Text Editor (and Builder when present) at the scheme's 
     if gsv_flatpak org.gnome.TextEditor; then gsv_set_flatpak org.gnome.TextEditor org.gnome.TextEditor style-scheme "$id" "Text Editor"; fi
     if ! gsv_flatpak org.gnome.TextEditor || gsettings list-schemas 2>/dev/null | grep -qx org.gnome.TextEditor; then
         if command -v dconf >/dev/null 2>&1; then
-            dconf write /org/gnome/TextEditor/style-scheme "'$id'" && echo "Text Editor style scheme is now $id (Text Editor also recolours its window from it)."
+            if err=$(dconf write /org/gnome/TextEditor/style-scheme "'$id'" 2>&1); then echo "[text-editor] updated style-scheme with $s"
+            else tfail gsv text-editor "style-scheme" "dconf write /org/gnome/TextEditor/style-scheme '$id'" "$err" "$(retry_cmd gsv "$s" "${accent_pick:-}")"; fi
         else echo "GtkSource style scheme installed but not applied to Text Editor: dconf not found. Pick \"$id\" in the editor's preferences."; fi
     fi
     local b_host=0 b_fp=0
@@ -824,7 +852,8 @@ gsv_switch() {   # point Text Editor (and Builder when present) at the scheme's 
     gsv_flatpak org.gnome.Builder && b_fp=1
     if [ $b_fp = 1 ]; then gsv_set_flatpak org.gnome.Builder org.gnome.builder.editor style-scheme-name "$id" "Builder"; fi
     if [ $b_host = 1 ]; then
-        if command -v dconf >/dev/null 2>&1; then dconf write /org/gnome/builder/editor/style-scheme-name "'$id'" && echo "Builder style scheme is now $id."
+        if command -v dconf >/dev/null 2>&1; then { if err=$(dconf write /org/gnome/builder/editor/style-scheme-name "'$id'" 2>&1); then echo "[builder] updated style-scheme-name with $s"
+            else tfail gsv builder "style-scheme-name" "dconf write /org/gnome/builder/editor/style-scheme-name '$id'" "$err" "$(retry_cmd gsv "$s" "${accent_pick:-}")"; fi; }
         else echo "Builder style scheme not applied: dconf not found. Pick \"$id\" in Builder's preferences."; fi
     fi
     if [ $b_host = 0 ] && [ $b_fp = 0 ]; then echo "Builder not found (no org.gnome.builder.editor schema, no Flatpak); its style scheme key was not set."; fi
@@ -850,7 +879,7 @@ gh_install() {   # gh_install SCHEME: copy the theme files and the pair file (sa
         pty_may_touch "$s" Replace "$dst" || continue
         mkdir -p "$(dirname "$dst")"; cp "$src" "$dst"; n=$((n+1))
     done < <(gh_targets "$s")
-    if [ "$n" -gt 0 ]; then echo "Installed Ghostty theme file(s) of $s ($n file(s); $gh_dir/themes and $gh_data)."; fi
+    if [ "$n" -gt 0 ]; then echo "[ghostty] installed $s"; fi
     return 0
 }
 gh_refresh() {   # update: refresh only the files that exist and are ours
@@ -863,27 +892,29 @@ gh_conf_file() { local f; for f in "$gh_dir/config.ghostty" "$gh_dir/config"; do
 gh_line_in() { grep -qE '^[[:space:]]*config-file[[:space:]]*=[[:space:]]*"?\??candy-for-gnome\.conf"?[[:space:]]*$' "$1" 2>/dev/null; }
 gh_link_ours() { [ -L "$gh_link" ] && case "$(readlink "$gh_link")" in "$gh_data"/*) return 0 ;; esac; return 1; }
 gh_remove() {    # remove only files that carry our marker and the link when it points at this scheme's pair file; the user's config is never edited
-    local s="$1" src dst conf
+    local s="$1" src dst conf n=0
     gh_present || return 0
     while IFS='|' read -r src dst; do
         [ -e "$dst" ] || continue
-        if pty_ours "$s" "$dst"; then rm -f "$dst"; echo "Removed $dst"; else echo "Left $dst alone (not installed by candy-for-gnome)." >&2; fi
+        if pty_ours "$s" "$dst"; then rm -f "$dst"; n=$((n+1)); else echo "Left $dst alone (not installed by candy-for-gnome)." >&2; fi
     done < <(gh_targets "$s")
     if gh_link_ours && [ "$(readlink "$gh_link")" = "$gh_data/$s.conf" ]; then
-        rm -f "$gh_link"; echo "Removed $gh_link"
+        rm -f "$gh_link"; n=$((n+1))
         conf=$(gh_conf_file)
         if [ -n "$conf" ] && gh_line_in "$conf"; then echo "Ghostty: your $conf still has the line below; it is harmless (the ? ignores a missing file), delete it when you like:"; echo "  $gh_line"; fi
     fi
+    if [ "$n" -gt 0 ]; then echo "[ghostty] removed $s"; fi
     return 0
 }
 gh_switch() {    # point Ghostty at the scheme: link the pair file, ask once about the include line, print the reload hint
-    local s="$1" conf a first
-    if ! gh_present; then echo "Ghostty: no config directory ($gh_dir), so nothing was set up for it."; return 0; fi
+    local s="$1" conf a first err
+    gh_present || return 0   # no Ghostty config directory: skipped silently
     first=$(gh_themes "$s" | head -n1)
     if [ -z "$first" ] || ! pty_ours "$s" "$gh_data/$s.conf" || ! pty_ours "$s" "$gh_dir/themes/$first"; then
         echo "Ghostty theme not applied: the installed copy of $s is missing or not ours."; return 0
     fi
-    if [ ! -e "$gh_link" ] && [ ! -L "$gh_link" ] || gh_link_ours; then ln -sfn "$gh_data/$s.conf" "$gh_link"
+    if [ ! -e "$gh_link" ] && [ ! -L "$gh_link" ] || gh_link_ours; then
+        if ! err=$(ln -sfn "$gh_data/$s.conf" "$gh_link" 2>&1); then tfail ghostty ghostty candy-for-gnome.conf "ln -sfn $gh_data/$s.conf $gh_link" "$err" "$(retry_cmd ghostty "$s" "${accent_pick:-}")"; return 0; fi
     else
         a=n
         if [ "${FORCE:-}" = 1 ]; then a=y
@@ -891,7 +922,7 @@ gh_switch() {    # point Ghostty at the scheme: link the pair file, ask once abo
         else echo "Refused: $gh_link exists and was not created by candy-for-gnome; left alone (FORCE=1 replaces it, or run in a terminal to be asked)." >&2; return 0; fi
         case "$a" in [yY]*) rm -rf "$gh_link"; ln -s "$gh_data/$s.conf" "$gh_link" ;; *) echo "Left $gh_link alone." >&2; return 0 ;; esac
     fi
-    echo "Ghostty theme is now $s (follows the system light/dark setting; $gh_link)."
+    echo "[ghostty] updated candy-for-gnome.conf with $s"
     conf=$(gh_conf_file)
     if [ -n "$conf" ] && gh_line_in "$conf"; then :
     elif [ -z "$conf" ]; then
@@ -899,13 +930,13 @@ gh_switch() {    # point Ghostty at the scheme: link the pair file, ask once abo
     elif [ "$tty_in" = 1 ]; then
         read -r -u 3 -p "Add the line '$gh_line' to $conf so Ghostty loads the theme (no other line is touched; the theme line it includes overrides a theme= line there)? [y/N] " a || a=n
         case "$a" in
-            [yY]*) [ -z "$(tail -c1 "$conf")" ] || echo >> "$conf"; echo "$gh_line" >> "$conf"; echo "Added the line to $conf." ;;
+            [yY]*) [ -z "$(tail -c1 "$conf")" ] || echo >> "$conf"; echo "$gh_line" >> "$conf"; true ;;
             *) echo "Left $conf alone. To use the theme, add this line yourself:"; echo "  $gh_line" ;;
         esac
     else
         echo "Ghostty: not editing $conf without a terminal. To use the theme, add this line to it:"; echo "  $gh_line"
     fi
-    echo "Ghostty has no auto-reload: press ctrl+shift+, (reload_config) in open Ghostty windows."
+    reload_list+=("ghostty")   # Ghostty cannot reload by itself: one line at the end of the switch asks for it (ctrl+shift+,)
 }
 gh_adwaita() {   # switch-theme Adwaita: retarget the managed include link to the neutral pair file (the user's config is never touched, nothing is created when there is no managed link)
     gh_present && gh_link_ours || return 0
@@ -1015,7 +1046,7 @@ sw_rows() {   # sw_rows SCHEME: the targets that apply here, labelled by what th
     for a in "${app_names[@]}"; do app_present "$a" && sw_row "app:$a" "$(app_title "$a") theme ($(app_dir "$a"))"; done
     if kde_has "$s"; then
         sw_row kde "KDE color scheme and kdeglobals ($kde_dir, $kde_globals)"
-        for q in qt5ct qt6ct; do [ -d "$cfg/$q" ] && qs="$qs${qs:+, }$cfg/$q/colors"; done
+        for q in qt5ct qt6ct; do kde_qt_used "$q" && qs="$qs${qs:+, }$cfg/$q/colors"; done
         [ -z "$qs" ] || sw_row qtct "qt5ct/qt6ct palette ($qs)"
     fi
 }
@@ -1074,10 +1105,10 @@ copy_folder() {  # replace folder $1 of item $2 in dest: remove the set's folder
     fi
     mark_dir "$dest/$f" "$it" "$f"; mark_old=""
     if [ "$kind" = themes ]; then apply_accent "$it" "$(current_accent "$it")" "$f"; fi
-    installed_n=$((installed_n+1)); echo "Installed $f -> $dest/$f"
+    installed_n=$((installed_n+1)); if [ "$kind" = icons ]; then echo "Installed $f -> $dest/$f"; fi
 }
 copy_item() {
-    local f h b mine=0
+    local f h b mine=0 n0=$installed_n
     prepare_item "$1" || return 1
     while read -r f; do if is_ours "$dest/$f" "$(src_index "$1" "$f")"; then mine=1; fi; done < <(folders_of "$1")
     while read -r f; do copy_folder "$f" "$1" || true; done < <(folders_of "$1")
@@ -1091,6 +1122,7 @@ copy_item() {
             cp -a "$h" "$dest/$b"; mark_dir "$dest/$b" "$1" "$b"; mark_old=""; echo "Installed $b (shared base)"
         done
     fi
+    if [ "$kind" = themes ] && [ "$installed_n" -gt "$n0" ]; then echo "[gtk] ${copy_verb:-installed} $1"; fi
     finish_item
 }
 refresh_for() {  # icons: refresh the clones of the sources of the named sets ($@)
@@ -1337,7 +1369,7 @@ case "$action" in
         for nm in "${inst[@]}"; do
             if [ "$kind" = icons ] && [ ! -d "$(clone_of "${i_src[$nm]}")/.git" ]; then echo "Skipping $nm: its source ${i_src[$nm]} is not available." >&2; continue; fi
             if [ "$kind" = icons ]; then copy_item "$nm"; n=$((n+1))
-            else while read -r f; do if [ -e "$dest/$f" ] && copy_folder "$f" "$nm"; then n=$((n+1)); fi; done < <(folders_of "$nm"); pty_cleanup; gsv_refresh "$nm"; gh_refresh "$nm"; app_refresh "$nm"; kde_refresh "$nm"; fi
+            else n0=$n; while read -r f; do if [ -e "$dest/$f" ] && copy_folder "$f" "$nm"; then n=$((n+1)); fi; done < <(folders_of "$nm"); if [ "$n" -gt "$n0" ]; then echo "[gtk] updated $nm"; fi; pty_cleanup; gsv_refresh "$nm"; gh_refresh "$nm"; app_refresh "$nm"; kde_refresh "$nm"; fi
         done
         if [ "$kind" = themes ]; then gh_refresh adwaita; app_refresh adwaita; fi   # the neutral files of switch-theme Adwaita, only where they exist and are ours
         [ "$n" -gt 0 ] || echo "None of the ${noun}s from this source is installed in $dest." ;;
@@ -1360,10 +1392,11 @@ case "$action" in
             while read -r f; do
                 if [ -e "$dest/$f" ] || [ -L "$dest/$f" ]; then
                     may_touch "$dest/$f" "$(src_index "${items[i]}" "$f")" Remove || continue
-                    rm -rf "${dest:?}/$f"; echo "Removed $dest/$f"
+                    rm -rf "${dest:?}/$f"; if [ "$kind" = themes ]; then rm_t=$((rm_t+1)); else echo "Removed $dest/$f"; fi
                     if [ "$f" = "$cur" ]; then echo "  note: $f is the one currently in use; run switch to choose another."; fi
                 fi
             done < <(folders_of "${items[i]}")
+            if [ "$kind" = themes ] && [ "${rm_t:-0}" -gt 0 ]; then echo "[gtk] removed ${items[i]}"; rm_t=0; fi
             if [ "$kind" = themes ] && ! is_installed "${items[i]}"; then state_del "$state/accents" "${items[i]}"; fi
             if [ "$kind" = themes ]; then pty_cleanup; gsv_remove "${items[i]}"; gh_remove "${items[i]}"; app_remove "${items[i]}"; kde_remove "${items[i]}"; fi
         done
@@ -1403,8 +1436,10 @@ case "$action" in
             else choose_accent "${items[i]}"; fi
             sw_select "${items[i]}" "$accent_pick"
             if [ -n "$accent_pick" ]; then state_set "$state/accents" "${items[i]}" "$accent_pick"; fi
-            if sw_on gtk || sw_on shell; then copy_item "${items[i]}"; fi
-            pty_cleanup; sw_on gsv && gsv_install "${items[i]}"; sw_on ghostty && gh_install "${items[i]}"; app_install "${items[i]}"; kde_install "${items[i]}"
+            {   # the install step of a switch is silent on success (the apply lines below are the one line per app); errors and prompts use stderr
+                if sw_on gtk || sw_on shell; then copy_item "${items[i]}"; fi
+                pty_cleanup; sw_on gsv && gsv_install "${items[i]}"; sw_on ghostty && gh_install "${items[i]}"; app_install "${items[i]}"; kde_install "${items[i]}"
+            } >/dev/null
             [ -z "$accent_pick" ] || echo "Accent: $accent_pick."
         fi
         if [ "$kind" = icons ]; then
@@ -1424,23 +1459,23 @@ case "$action" in
             done < <(folders_of "$sc")
             if [ -n "$gtk" ] && was_skipped "$gtk"; then echo "Not switching the GTK theme: $gtk was left alone (not installed by candy-for-gnome)."; gtk=""; fi
             if [ -n "$gtk" ] && sw_on gtk; then
-                gsettings set org.gnome.desktop.interface gtk-theme "$gtk"; set_ini gtk-theme-name "$gtk"
-                echo "GTK theme is now $gtk."
+                if err=$(gsettings set org.gnome.desktop.interface gtk-theme "$gtk" 2>&1 && set_ini gtk-theme-name "$gtk" 2>&1); then echo "[gtk] updated gtk-theme with $sc"; reload_list+=("gtk apps")
+                else tfail gtk gtk "gtk-theme" "gsettings set org.gnome.desktop.interface gtk-theme $gtk" "$err" "$(retry_cmd gtk "$sc" "${accent_pick:-}")"; fi
             fi
             shell="${shell_d:-$shell_l}"     # a light-only scheme has no Dark Shell theme
             if ! gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null | grep -qi dark; then shell="${shell_l:-$shell_d}"; fi
             if [ -n "$shell" ] && was_skipped "$shell"; then echo "Not switching the Shell theme: $shell was left alone (not installed by candy-for-gnome)."; shell=""; fi
             if [ -n "$shell" ] && sw_on shell; then
-                shell_done=0
+                shell_done=0; err=""
                 if gsettings list-schemas 2>/dev/null | grep -qx org.gnome.shell.extensions.user-theme; then
-                    gsettings set org.gnome.shell.extensions.user-theme name "$shell" && shell_done=1
+                    err=$(gsettings set org.gnome.shell.extensions.user-theme name "$shell" 2>&1) && shell_done=1
                 elif command -v dconf >/dev/null 2>&1; then
                     # The User Themes extension is normally installed per user, so its schema is not in the system schema dirs and
                     # gsettings does not list it: write the key directly.
-                    dconf write /org/gnome/shell/extensions/user-theme/name "'$shell'" && shell_done=1
-                fi
-                if [ "$shell_done" -eq 1 ]; then echo "Shell theme is now $shell (reload it by logging out and in, or toggling the User Themes extension)."
-                else echo "Could not set the Shell theme: neither gsettings nor dconf could write the User Themes key."; fi
+                    err=$(dconf write /org/gnome/shell/extensions/user-theme/name "'$shell'" 2>&1) && shell_done=1
+                else err="neither gsettings nor dconf could write the User Themes key (dconf: command not found)"; fi
+                if [ "$shell_done" -eq 1 ]; then echo "[shell] updated user-theme with $sc"; reload_list+=("gtk apps")
+                else tfail shell shell "user-theme name" "set org.gnome.shell.extensions.user-theme name to $shell" "$err" "$(retry_cmd shell "$sc" "${accent_pick:-}")"; fi
                 if command -v gnome-extensions >/dev/null 2>&1 && ! gnome-extensions list --enabled 2>/dev/null | grep -q '^user-theme@'; then
                     echo "  note: the User Themes extension is not enabled; the Shell theme only applies once it is."
                 fi
@@ -1458,21 +1493,33 @@ case "$action" in
                     fi
                     chmod 644 "$tmpla"; la="$tmpla"
                 fi
-                mkdir -p "$(dirname "$target")"
-                if [ ! -e "$target" ]; then cp "$la" "$target"; echo "Installed $target (libadwaita apps)."
-                elif cmp -s "$la" "$target"; then echo "$target is already current."
+                la_ok=0; err=""
+                if ! err=$(mkdir -p "$(dirname "$target")" 2>&1); then :
+                elif [ ! -e "$target" ]; then err=$(cp "$la" "$target" 2>&1) && la_ok=1
+                elif cmp -s "$la" "$target"; then la_ok=1
                 elif grep -q "libadwaita-gen.py" "$target" 2>/dev/null || [ -e "$target.bak" ]; then
                     # A file generated by candy-for-gnome earlier (another accent or scheme), or a backup of the original already exists
                     # (so this file was put here by these recipes): replace it without asking and keep the existing backup.
-                    cp "$la" "$target"; echo "Updated $target (libadwaita apps)."
+                    err=$(cp "$la" "$target" 2>&1) && la_ok=1
                 elif [ -t 0 ]; then
                     read -r -p "$target differs from the scheme's libadwaita file. Replace it (the old one is kept as .bak)? [y/N] " a || a=n
-                    case "$a" in [yY]*) cp -L --backup=numbered "$target" "$target.bak"; cp "$la" "$target"; echo "Replaced $target (old one: $target.bak)." ;; *) echo "Left $target alone." ;; esac
-                else echo "$target differs from the scheme's libadwaita file; left alone (run in a terminal to replace it)."
+                    case "$a" in
+                        [yY]*) err=$(cp -L --backup=numbered "$target" "$target.bak" 2>&1 && cp "$la" "$target" 2>&1) && { la_ok=1; echo "Old $target kept as $target.bak (undo: cp $target.bak $target)"; } ;;
+                        *) echo "Left $target alone." ;;
+                    esac
+                    [ "$la_ok" = 1 ] || [ -n "$err" ] || la_ok=-1
+                else echo "$target differs from the scheme's libadwaita file; left alone (run in a terminal to replace it)."; la_ok=-1
                 fi
+                if [ "$la_ok" = 1 ]; then echo "[libadwaita] updated gtk.css with $sc"; reload_list+=("gtk apps")
+                elif [ "$la_ok" = 0 ]; then tfail libadwaita libadwaita "gtk.css" "write $target" "$err" "$(retry_cmd libadwaita "$sc" "${accent_pick:-}")"; fi
             fi
             pty_cleanup; sw_on ptyxis && pty_switch "$sc"; sw_on gsv && gsv_switch "$sc"; sw_on ghostty && gh_switch "$sc"; app_switch "$sc"; kde_switch "$sc"; fp_hint
-            echo "Restart GTK apps to pick up the new theme."
+            if [ "${#reload_list[@]}" -gt 0 ]; then
+                rl=$(printf '%s\n' "${reload_list[@]}" | awk '!seen[$0]++' | paste -sd, - | sed 's/,/, /g'); echo "reload or restart: $rl"
+            fi
+            if [ "${#failed_targets[@]}" -gt 0 ]; then
+                echo "${#failed_targets[@]} target$([ "${#failed_targets[@]}" -gt 1 ] && echo s) failed: $(printf '%s\n' "${failed_targets[@]}" | paste -sd, - | sed 's/,/, /g')" >&2; exit 1
+            fi
         fi ;;
 
     *) echo "usage: themectl.sh <themes|icons> <install|list|update|remove|switch> [name] [accent]"; exit 2 ;;

@@ -346,7 +346,7 @@ python3 -I "$T/drift/tools/selftest.py" nordic ghostty >/dev/null 2>&1 && chk fa
 GH="$T/ghtest"; rm -rf "$GH" "$T/gdata"; mkdir -p "$GH"; GCFG="$T/cfg/ghostty"; rm -rf "$GCFG"
 gt() { XDG_DATA_HOME="$T/gdata" THEMES_DEST="$GH" "$@"; }
 out=$(gt just install-theme nordic </dev/null 2>&1; gt just switch-theme nordic </dev/null 2>&1; gt just list-themes </dev/null 2>&1)
-[ ! -e "$GCFG" ] && [ ! -e "$T/gdata/candy-for-gnome" ] && ! printf '%s\n' "$out" | grep -q '^Ghostty (' && printf '%s\n' "$out" | grep -q "Ghostty: no config directory" && chk ok "ghostty: no config directory, nothing created, no status line, one note" || chk fail "ghostty: missing config directory not handled"
+[ ! -e "$GCFG" ] && [ ! -e "$T/gdata/candy-for-gnome" ] && ! printf '%s\n' "$out" | grep -q '^Ghostty (' && ! printf '%s\n' "$out" | grep -qi "ghostty" && chk ok "ghostty: no config directory, nothing created, no status line, no output (a tool that is not there is skipped silently)" || chk fail "ghostty: missing config directory not handled"
 gt just remove-theme nordic </dev/null >/dev/null 2>&1
 mkdir -p "$GCFG/themes"; printf 'font-size = 12\ntheme = something\n' > "$GCFG/config.ghostty"; cp "$GCFG/config.ghostty" "$T/gh-config.orig"
 echo mine > "$GCFG/themes/candy-for-gnome-nordic-dark"; echo handmade > "$GCFG/themes/gruvbox-material-dark"
@@ -356,7 +356,7 @@ FORCE=1 gt just install-theme nordic </dev/null >/dev/null 2>&1
 head -1 "$GCFG/themes/candy-for-gnome-nordic-dark" | grep -qx '# candy-for-gnome: nordic' && [ -f "$T/gdata/candy-for-gnome/ghostty/nordic.conf" ] && [ "$(cat "$GCFG/themes/gruvbox-material-dark")" = handmade ] && chk ok "ghostty: install writes theme file and pair file; other hand-made themes untouched" || chk fail "ghostty install"
 out=$(gt just switch-theme nordic </dev/null 2>&1)
 [ -L "$GCFG/candy-for-gnome.conf" ] && [ "$(readlink "$GCFG/candy-for-gnome.conf")" = "$T/gdata/candy-for-gnome/ghostty/nordic.conf" ] && cmp -s "$GCFG/config.ghostty" "$T/gh-config.orig" \
-  && printf '%s\n' "$out" | grep -qxF '  config-file = ?candy-for-gnome.conf' && printf '%s\n' "$out" | grep -q 'ctrl+shift+,' && chk ok "ghostty: switch links the pair file; without a terminal it prints the include line and the reload key and edits nothing" || chk fail "ghostty switch without a terminal"
+  && printf '%s\n' "$out" | grep -qxF '  config-file = ?candy-for-gnome.conf' && printf '%s\n' "$out" | grep -q 'reload or restart: .*ghostty' && chk ok "ghostty: switch links the pair file; without a terminal it prints the include line and the one reload line and edits nothing" || chk fail "ghostty switch without a terminal"
 gt just list-themes </dev/null 2>&1 | grep -q "^Ghostty (.*theme nordic; include line: not in the config" && chk ok "ghostty: list shows the status line when the directory exists" || chk fail "ghostty status line"
 # a regular file (or foreign link) with our link name is never replaced silently
 rm "$GCFG/candy-for-gnome.conf"; echo mine > "$GCFG/candy-for-gnome.conf"
@@ -501,8 +501,8 @@ first=$({ printf '%s\n' "${named[@]}"; echo "$all_schemes"; } | grep -vx '' | he
 a1=$(echo "$accs" | sed -n 1p); a2=$(echo "$accs" | sed -n 2p)
 THEMES_DEST=$D just install-theme "$first" >/dev/null 2>&1
 sw() { XDG_CONFIG_HOME="$CFGLA" THEMES_DEST=$D just switch-theme "$first" "$1" 2>&1 </dev/null; }
-sw "$a1" | grep -q "Installed $CFGLA/gtk-4.0/gtk.css" && chk ok "libadwaita file installed when absent" || chk fail "libadwaita file not installed when absent"
-c1=$(sha1sum < "$CFGLA/gtk-4.0/gtk.css"); sw "$a2" | grep -q "Updated $CFGLA/gtk-4.0/gtk.css"; c2=$(sha1sum < "$CFGLA/gtk-4.0/gtk.css")
+sw "$a1" | grep -q "\[libadwaita\] updated gtk.css with" && chk ok "libadwaita file installed when absent" || chk fail "libadwaita file not installed when absent"
+c1=$(sha1sum < "$CFGLA/gtk-4.0/gtk.css"); sw "$a2" | grep -q "\[libadwaita\] updated gtk.css with"; c2=$(sha1sum < "$CFGLA/gtk-4.0/gtk.css")
 [ "$c1" != "$c2" ] && chk ok "our own libadwaita file is replaced without a prompt on an accent change" || chk fail "accent change did not replace our own libadwaita file"
 echo "/* somebody else's stylesheet */" > "$CFGLA/gtk-4.0/gtk.css"; sw "$a1" | grep -q "left alone" && grep -q "somebody else" "$CFGLA/gtk-4.0/gtk.css" && chk ok "a foreign libadwaita file without a backup is left alone without a terminal" || chk fail "foreign libadwaita file was touched"
 echo "/* original */" > "$CFGLA/gtk-4.0/gtk.css.bak"; sw "$a1" >/dev/null; { ! grep -q "somebody else" "$CFGLA/gtk-4.0/gtk.css" && grep -q "original" "$CFGLA/gtk-4.0/gtk.css.bak"; } && chk ok "with a backup present the file is replaced without a prompt and the backup is kept" || chk fail "backup case wrong"
@@ -609,16 +609,16 @@ for d in "$GTKSOURCEVIEW_STYLES" "$FLATPAK_APPS/org.gnome.TextEditor/data/gtksou
 [ $ok = 1 ] && chk ok "install-theme copies the style schemes into the user dir and into the Flatpak editors' data dirs (Text Editor by dir, Builder via flatpak info)" || chk fail "gsv install ($(ls "$GTKSOURCEVIEW_STYLES" 2>&1 | tr '\n' ' '))"
 out=$(FLATPAK_INFO="org.gnome.Builder" PATH="$T/fpbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
 gsread() { awk -F'\t' -v a="$1" -v s="$2" -v k="$3" '$1==a && $2==s && $3==k {v=$4} END {print v}' "$FLATPAK_GS"; }
-[ "$(dconf read /org/gnome/TextEditor/style-scheme)" = "'candy-for-gnome-gruvbox-material-dark'" ] && [ "$(gsread org.gnome.Builder org.gnome.builder.editor style-scheme-name)" = "candy-for-gnome-gruvbox-material-dark" ] && [ -z "$(dconf read /org/gnome/builder/editor/style-scheme-name)" ] && printf '%s\n' "$out" | grep -q "Builder (Flatpak) style scheme is now candy-for-gnome-gruvbox-material-dark" && chk ok "switch-theme: Text Editor (not a Flatpak) through host dconf, Builder (Flatpak) inside its sandbox store with a read-back, -dark id while the desktop is dark" || chk fail "gsv switch dark ($(grep -E 'TextEditor|builder' "$DCONF_DB" | tr '\t\n' '= ') / $(tr '\t\n' '= ' < "$FLATPAK_GS"))"
+[ "$(dconf read /org/gnome/TextEditor/style-scheme)" = "'candy-for-gnome-gruvbox-material-dark'" ] && [ "$(gsread org.gnome.Builder org.gnome.builder.editor style-scheme-name)" = "candy-for-gnome-gruvbox-material-dark" ] && [ -z "$(dconf read /org/gnome/builder/editor/style-scheme-name)" ] && printf '%s\n' "$out" | grep -q "\[builder\] updated style-scheme with gruvbox-material" && chk ok "switch-theme: Text Editor (not a Flatpak) through host dconf, Builder (Flatpak) inside its sandbox store with a read-back, -dark id while the desktop is dark" || chk fail "gsv switch dark ($(grep -E 'TextEditor|builder' "$DCONF_DB" | tr '\t\n' '= ') / $(tr '\t\n' '= ' < "$FLATPAK_GS"))"
 lbin="$T/bin-light"; mkdir -p "$lbin"; printf '#!/bin/sh\ncase "$1" in set) : ;; get) case "$3" in color-scheme) echo "\x27default\x27";; *) echo "\x27x\x27";; esac ;; list-schemas) echo org.gnome.shell.extensions.user-theme ;; esac\n' > "$lbin/gsettings"; chmod +x "$lbin/gsettings"
 PATH="$lbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null >/dev/null 2>&1
 [ "$(dconf read /org/gnome/TextEditor/style-scheme)" = "'candy-for-gnome-gruvbox-material-light'" ] && [ "$(gsread org.gnome.Builder org.gnome.builder.editor style-scheme-name)" = "candy-for-gnome-gruvbox-material-dark" ] && chk ok "light desktop: the -light id for Text Editor; Builder untouched when it is not installed" || chk fail "gsv switch light"
 # Flatpak Text Editor: the key goes into the sandbox store (right app, schema, key), read back, host dconf untouched; a mismatch warns; no flatpak does nothing there
 : > "$DCONF_DB"; : > "$FLATPAK_GS"; rm -f "$FLATPAK_GS.calls"
 out=$(FLATPAK_INFO="org.gnome.TextEditor" PATH="$T/fpbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
-[ "$(gsread org.gnome.TextEditor org.gnome.TextEditor style-scheme)" = "candy-for-gnome-gruvbox-material-dark" ] && grep -q "^run org.gnome.TextEditor set org.gnome.TextEditor style-scheme candy-for-gnome-gruvbox-material-dark" "$FLATPAK_GS.calls" && [ -z "$(dconf read /org/gnome/TextEditor/style-scheme)" ] && printf '%s\n' "$out" | grep -q "Text Editor (Flatpak) style scheme is now candy-for-gnome-gruvbox-material-dark" && ! printf '%s\n' "$out" | grep -q "Text Editor style scheme is now" && chk ok "Flatpak Text Editor: set and read back inside the sandbox (org.gnome.TextEditor style-scheme), host dconf not written" || chk fail "flatpak text editor ($out)"
+[ "$(gsread org.gnome.TextEditor org.gnome.TextEditor style-scheme)" = "candy-for-gnome-gruvbox-material-dark" ] && grep -q "^run org.gnome.TextEditor set org.gnome.TextEditor style-scheme candy-for-gnome-gruvbox-material-dark" "$FLATPAK_GS.calls" && [ -z "$(dconf read /org/gnome/TextEditor/style-scheme)" ] && printf '%s\n' "$out" | grep -q "\[text-editor\] updated style-scheme with gruvbox-material" && ! printf '%s\n' "$out" | grep -q "\[text-editor\] .*\[text-editor\]" && chk ok "Flatpak Text Editor: set and read back inside the sandbox (org.gnome.TextEditor style-scheme), host dconf not written" || chk fail "flatpak text editor ($out)"
 : > "$FLATPAK_GS"; out=$(FLATPAK_GS_RO=1 FLATPAK_INFO="org.gnome.TextEditor" PATH="$T/fpbin:$PATH" THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
-printf '%s\n' "$out" | grep -q "WARNING: Text Editor (Flatpak) style scheme reads" && ! printf '%s\n' "$out" | grep -q "Text Editor (Flatpak) style scheme is now" && chk ok "a read-back that does not match warns and does not claim success" || chk fail "no mismatch warning ($out)"
+printf '%s\n' "$out" | grep -q "WARNING: Text Editor (Flatpak) style scheme reads" && ! printf '%s\n' "$out" | grep -q "\[text-editor\] updated" && chk ok "a read-back that does not match warns and does not claim success" || chk fail "no mismatch warning ($out)"
 : > "$FLATPAK_GS"; rm -f "$FLATPAK_GS.calls"
 out=$(THEMES_DEST=$PD just switch-theme gruvbox-material </dev/null 2>&1)
 [ ! -e "$FLATPAK_GS.calls" ] && [ "$(dconf read /org/gnome/TextEditor/style-scheme)" = "'candy-for-gnome-gruvbox-material-dark'" ] && ! printf '%s\n' "$out" | grep -q "(Flatpak)" && chk ok "no Flatpak: no sandbox call, host dconf is used for Text Editor" || chk fail "no-flatpak editor ($out)"
@@ -931,13 +931,34 @@ printf '[General]\nColorScheme=noctalia\nName=noctalia\nfont=Mine,10\n\n[Colors:
 out=$(THEMES_DEST=$KT just switch-theme gruvbox-material </dev/null 2>&1)
 cmp -s "$KG" "$T/kg.orig" && printf '%s\n' "$out" | grep -q "Left .*kdeglobals alone" && chk ok "kde: a kdeglobals not written by candy-for-gnome (Noctalia) is left alone with a message and how to hand it over" || chk fail "kde foreign kdeglobals touched ($out)"
 out=$(FORCE=1 THEMES_DEST=$KT just switch-theme gruvbox-material </dev/null 2>&1)
-head -1 "$KG" | grep -qx '# candy-for-gnome: gruvbox-material' && cmp -s "$KG.bak" "$T/kg.orig" && grep -qx 'font=Mine,10' "$KG" && grep -qx 'ColorScheme=candy-for-gnome-gruvbox-material-dark' "$KG" && ! grep -q noctalia "$KG" && [ "$(grep -c '^\[Colors:Window\]' "$KG")" = 1 ] && [ "$(sel "$KG")" = "$kdef" ] && printf '%s\n' "$out" | grep -qF "To undo: cp $KG.bak $KG" && chk ok "kde: FORCE=1 (or y) takes the file over: backup kept, our groups and ColorScheme in, other lines kept, undo line printed" || chk fail "kde takeover ($(cat "$KG"))"
+head -1 "$KG" | grep -qx '# candy-for-gnome: gruvbox-material' && cmp -s "$KG.bak" "$T/kg.orig" && grep -qx 'font=Mine,10' "$KG" && grep -qx 'ColorScheme=candy-for-gnome-gruvbox-material-dark' "$KG" && ! grep -q noctalia "$KG" && [ "$(grep -c '^\[Colors:Window\]' "$KG")" = 1 ] && [ "$(sel "$KG")" = "$kdef" ] && printf '%s\n' "$out" | grep -qF "(undo: cp $KG.bak $KG)" && chk ok "kde: FORCE=1 (or y) takes the file over: backup kept, our groups and ColorScheme in, other lines kept, undo line printed" || chk fail "kde takeover ($(cat "$KG"))"
 out=$(THEMES_DEST=$KT just switch-theme gruvbox-material red </dev/null 2>&1)
 [ "$(sel "$KG")" != "$kdef" ] && [ "$(sel "$KG")" = "$(sel "$KDE_COLOR_SCHEMES/candy-for-gnome-gruvbox-material-dark.colors")" ] && grep -qx 'font=Mine,10' "$KG" && [ "$(grep -c '^\[Colors:Window\]' "$KG")" = 1 ] && chk ok "kde: our own kdeglobals is refreshed without a question, the chosen accent is the Selection color, other lines stay" || chk fail "kde ours merge ($(sel "$KG"))"
-mkdir -p "$XDG_CONFIG_HOME/qt6ct"
-THEMES_DEST=$KT just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+# a bare colors/ folder is NOT a sign that qt6ct is in use (Noctalia's old template and earlier runs leave them): nothing written, nothing printed
+mkdir -p "$XDG_CONFIG_HOME/qt6ct/colors"
+out=$(THEMES_DEST=$KT just install-theme gruvbox-material </dev/null 2>&1; THEMES_DEST=$KT just switch-theme gruvbox-material red </dev/null 2>&1)
+[ -z "$(ls "$XDG_CONFIG_HOME/qt6ct/colors")" ] && ! printf '%s\n' "$out" | grep -qi "qt6ct\|qt5ct\|qtct" && chk ok "qtct: a stray colors/ folder alone writes nothing and prints nothing" || chk fail "qtct stray folder ($out)"
+echo '[Appearance]' > "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf"
+out=$(THEMES_DEST=$KT just install-theme gruvbox-material </dev/null 2>&1; THEMES_DEST=$KT just switch-theme gruvbox-material red </dev/null 2>&1)
 q="$XDG_CONFIG_HOME/qt6ct/colors/candy-for-gnome-gruvbox-material-dark.conf"
+printf '%s\n' "$out" | grep -qF "[qt6ct] updated candy-for-gnome-gruvbox-material-dark.conf with gruvbox-material" && [ "$(printf '%s\n' "$out" | grep -c '\[qt6ct\] updated')" = 1 ] && printf '%s\n' "$out" | grep -q "\[qt6ct\] pick candy-for-gnome-gruvbox-material-dark" && chk ok "qtct: with qt6ct.conf present the palette is written, one success line, and one pointer line while qt6ct.conf does not select it" || chk fail "qt6ct in use ($out)"
+printf '[Appearance]\ncolor_scheme_path=%s\ncustom_palette=true\n' "$q" > "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf"
+out=$(THEMES_DEST=$KT just switch-theme gruvbox-material red </dev/null 2>&1)
+! printf '%s\n' "$out" | grep -q "pick candy-for-gnome" && printf '%s\n' "$out" | grep -q "\[qt6ct\] updated" && chk ok "qtct: no pointer once qt6ct.conf selects the palette" || chk fail "qt6ct pointer ($out)"
+# the tool's binary on PATH counts as in use too (qt5ct here), a missing qt5ct config dir is created by the install
+mkdir -p "$T/qtbin"; printf '#!/bin/sh\nexit 0\n' > "$T/qtbin/qt5ct"; chmod +x "$T/qtbin/qt5ct"
+out=$(CANDY_FOR_GNOME_APPS_PATH="$T/qtbin" THEMES_DEST=$KT just install-theme gruvbox-material </dev/null 2>&1)
+[ -f "$XDG_CONFIG_HOME/qt5ct/colors/candy-for-gnome-gruvbox-material-dark.conf" ] && chk ok "qtct: the qt5ct binary on PATH counts as in use" || chk fail "qt5ct binary not seen ($out)"
+rm -rf "$XDG_CONFIG_HOME/qt5ct"; echo '[Appearance]' > "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf"
 [ -f "$q" ] && [ ! -e "$XDG_CONFIG_HOME/qt5ct" ] && head -1 "$q" | grep -qx '# candy-for-gnome: gruvbox-material' && [ "$(grep '^active_colors=' "$q" | tr ',' '\n' | wc -l)" = 22 ] && ! grep -qi '#7daea3' "$q" && grep -qi '#ea6962' "$q" && chk ok "qtct: palettes are written only where the config directory exists, 22 colors per palette, the chosen accent applied" || chk fail "qtct ($(head -8 "$q" 2>&1))"
+# terse output: one line per app on success, no trailers; a failing target is descriptive, the rest carries on, one summary line, exit 1
+cp "$KG" "$T/kg.keep"; rm -rf "$KG"; out=$(THEMES_DEST=$KT just switch-theme gruvbox-material red </dev/null 2>&1)
+[ "$(printf '%s\n' "$out" | grep -c '^\[gtk\] updated gtk-theme with gruvbox-material$')" = 1 ] && [ "$(printf '%s\n' "$out" | grep -c '^\[kde\] updated kdeglobals with gruvbox-material$')" = 1 ] && ! printf '%s\n' "$out" | grep -q 'Restart GTK apps\|Next: in\|Restart KDE\|variant;\|is now' && printf '%s\n' "$out" | grep -qx 'reload or restart: gtk apps, kde apps, qt apps' && chk ok "a successful switch prints one line per app, the one reload line, and none of the old trailers" || chk fail "terse success output ($out)"
+printf 'file, not a directory\n' > "$T/notadir"
+out=$(KDEGLOBALS="$T/notadir/kdeglobals" THEMES_DEST=$KT just switch-theme gruvbox-material red </dev/null 2>&1); rc=$?
+printf '%s\n' "$out" | grep -q 'Could not update kdeglobals for \[kde\]' && printf '%s\n' "$out" | grep -q 'error: .*mkdir' && printf '%s\n' "$out" | grep -q 'likely: ' && printf '%s\n' "$out" | grep -qF 'retry: THEMES_TARGETS=kde just switch-theme gruvbox-material red --yes' && printf '%s\n' "$out" | grep -qx '1 target failed: kde' && printf '%s\n' "$out" | grep -q '^\[gtk\] updated gtk-theme' && [ "$rc" != 0 ] && chk ok "a failing target is descriptive (app, file, the tool's own error, likely reason, exact retry), the other targets still apply, one summary line, non-zero exit" || chk fail "failure output (rc=$rc: $out)"
+out=$(THEMES_TARGETS=kde THEMES_DEST=$KT just switch-theme gruvbox-material red --yes </dev/null 2>&1); [ -f "$KG" ] && printf '%s\n' "$out" | grep -q '^\[kde\] updated kdeglobals' && chk ok "the printed retry command (with the problem fixed) writes kdeglobals" || chk fail "retry did not work ($out)"
+cp "$T/kg.keep" "$KG"; rm -f "$T/notadir" "$T/kg.keep"
 # a scheme folder without kde/ and qtct/ (a fixture) installs and writes nothing of the KDE kind
 cp -r themes/monokai themes/zz-nokde; rm -rf themes/zz-nokde/kde themes/zz-nokde/qtct
 cp "$KG" "$T/kg.before"; out=$(THEMES_DEST=$KT just switch-theme zz-nokde </dev/null 2>&1); rm -rf themes/zz-nokde
@@ -954,23 +975,23 @@ if command -v script >/dev/null 2>&1; then
     THEMES_DEST=$ST just install-theme gruvbox-material </dev/null >/dev/null 2>&1
     swp() { THEMES_SWITCH_CHOOSE=1 THEMES_DEST=$ST script -qec "tools/themectl.sh themes switch gruvbox-material $2" /dev/null < <(printf "$1") 2>&1 | tr '\r' '\n'; }   # swp KEYS ARGS: the screen text of a pty run
     : > "$LOG"; out=$(swp '\n' blue)
-    printf '%s\n' "$out" | grep -q "Apply gruvbox-material to" && ! printf '%s\n' "$out" | grep -q "skipped:" && printf '%s\n' "$out" | grep -q "GTK theme is now" && [ "$(grep -c gtk-theme "$LOG")" -ge 1 ] && head -1 "$KG" | grep -qx '# candy-for-gnome: gruvbox-material' && [ -L "$XDG_CONFIG_HOME/ghostty/candy-for-gnome.conf" ] && chk ok "switch checklist: every row is ticked, Enter applies all of them (GTK, Shell, kdeglobals, Ghostty), no skipped line" || chk fail "all-ticked switch ($out)"
+    printf '%s\n' "$out" | grep -q "Apply gruvbox-material to" && ! printf '%s\n' "$out" | grep -q "skipped:" && printf '%s\n' "$out" | grep -q "\[gtk\] updated gtk-theme with" && [ "$(grep -c gtk-theme "$LOG")" -ge 1 ] && head -1 "$KG" | grep -qx '# candy-for-gnome: gruvbox-material' && [ -L "$XDG_CONFIG_HOME/ghostty/candy-for-gnome.conf" ] && chk ok "switch checklist: every row is ticked, Enter applies all of them (GTK, Shell, kdeglobals, Ghostty), no skipped line" || chk fail "all-ticked switch ($out)"
     printf '%s\n' "$out" | grep -q "KDE color scheme and kdeglobals" && printf '%s\n' "$out" | grep -q "Ghostty theme (" && ! printf '%s\n' "$out" | grep -q "qt5ct/qt6ct palette" && chk ok "rows exist only where they apply (no qt5ct/qt6ct row without its directory; Ghostty and KDE rows present)" || chk fail "row set ($out)"
-    mkdir -p "$XDG_CONFIG_HOME/qt6ct"; out=$(swp 'q' blue)
+    mkdir -p "$XDG_CONFIG_HOME/qt6ct"; echo "[Appearance]" > "$XDG_CONFIG_HOME/qt6ct/qt6ct.conf"; out=$(swp q blue)
     printf '%s\n' "$out" | grep -q "qt5ct/qt6ct palette" && chk ok "the qt5ct/qt6ct row appears once a qt6ct config directory exists" || chk fail "qtct row missing"
     rm -rf "$KG" "$XDG_CONFIG_HOME/qt6ct"; : > "$LOG"; out=$(swp ' \n' blue)
-    printf '%s\n' "$out" | grep -q "skipped: GTK theme" && printf '%s\n' "$out" | grep -qF "THEMES_TARGETS=gtk just switch-theme gruvbox-material blue --yes" && ! printf '%s\n' "$out" | grep -q "GTK theme is now" && [ "$(grep -c gtk-theme "$LOG")" = 0 ] && printf '%s\n' "$out" | grep -q "Shell theme is now" && [ -f "$KG" ] && chk ok "one row unticked (SPACE): that target is skipped with its apply-later command, all others are applied" || chk fail "one unticked ($out)"
+    printf '%s\n' "$out" | grep -q "skipped: GTK theme" && printf '%s\n' "$out" | grep -qF "THEMES_TARGETS=gtk just switch-theme gruvbox-material blue --yes" && ! printf '%s\n' "$out" | grep -q "\[gtk\] updated gtk-theme with" && [ "$(grep -c gtk-theme "$LOG")" = 0 ] && printf '%s\n' "$out" | grep -q "\[shell\] updated user-theme with" && [ -f "$KG" ] && chk ok "one row unticked (SPACE): that target is skipped with its apply-later command, all others are applied" || chk fail "one unticked ($out)"
     rm -rf "$KG"; : > "$LOG"; out=$(swp 'q' blue)
     printf '%s\n' "$out" | grep -q "Cancelled. Nothing was applied; run just switch-theme gruvbox-material again" && [ ! -e "$KG" ] && [ "$(grep -c theme "$LOG")" = 0 ] && ! printf '%s\n' "$out" | grep -q " is now " && chk ok "Esc/q: nothing applied, exit 0, how to run it again" || chk fail "cancel ($out)"
     out=$(swp 'n\n' blue)
     printf '%s\n' "$out" | grep -q "Nothing selected: nothing was applied" && [ ! -e "$KG" ] && chk ok "an empty result applies nothing" || chk fail "empty result ($out)"
     # no checklist: a non-terminal run, --yes in a terminal, THEMES_TARGETS
     : > "$LOG"; out=$(THEMES_SWITCH_CHOOSE=1 THEMES_DEST=$ST just switch-theme gruvbox-material blue </dev/null 2>&1)
-    ! printf '%s\n' "$out" | grep -q "Apply gruvbox-material to\|skipped:" && printf '%s\n' "$out" | grep -q "GTK theme is now" && [ -f "$KG" ] && chk ok "no terminal: no checklist, everything applied as before (THEMES_SWITCH_CHOOSE=1 does not force one)" || chk fail "non-terminal path ($out)"
+    ! printf '%s\n' "$out" | grep -q "Apply gruvbox-material to\|skipped:" && printf '%s\n' "$out" | grep -q "\[gtk\] updated gtk-theme with" && [ -f "$KG" ] && chk ok "no terminal: no checklist, everything applied as before (THEMES_SWITCH_CHOOSE=1 does not force one)" || chk fail "non-terminal path ($out)"
     rm -rf "$KG"; out=$(swp '' 'blue --yes')
-    ! printf '%s\n' "$out" | grep -q "Apply gruvbox-material to" && printf '%s\n' "$out" | grep -q "GTK theme is now" && [ -f "$KG" ] && chk ok "--yes in a terminal: no checklist, everything applied" || chk fail "--yes path ($out)"
+    ! printf '%s\n' "$out" | grep -q "Apply gruvbox-material to" && printf '%s\n' "$out" | grep -q "\[gtk\] updated gtk-theme with" && [ -f "$KG" ] && chk ok "--yes in a terminal: no checklist, everything applied" || chk fail "--yes path ($out)"
     rm -rf "$KG"; : > "$LOG"; out=$(THEMES_TARGETS=kde THEMES_DEST=$ST just switch-theme gruvbox-material blue </dev/null 2>&1)
-    [ -f "$KG" ] && ! printf '%s\n' "$out" | grep -q "GTK theme is now" && [ "$(grep -c theme "$LOG")" = 0 ] && printf '%s\n' "$out" | grep -q "skipped: GTK theme" && chk ok "THEMES_TARGETS=kde applies only the kde row, without a question" || chk fail "THEMES_TARGETS ($out)"
+    [ -f "$KG" ] && ! printf '%s\n' "$out" | grep -q "\[gtk\] updated gtk-theme with" && [ "$(grep -c theme "$LOG")" = 0 ] && printf '%s\n' "$out" | grep -q "skipped: GTK theme" && chk ok "THEMES_TARGETS=kde applies only the kde row, without a question" || chk fail "THEMES_TARGETS ($out)"
     out=$(THEMES_TARGETS=nosuch THEMES_DEST=$ST just switch-theme gruvbox-material blue </dev/null 2>&1); printf '%s\n' "$out" | grep -q "unknown or inapplicable" && chk ok "an unknown THEMES_TARGETS id is refused" || chk fail "bad target id accepted"
     THEMES_DEST=$ST just remove-theme gruvbox-material </dev/null >/dev/null 2>&1; rm -rf "$ST" "$KDE_COLOR_SCHEMES" "$KG" "$KG.bak" "$XDG_CONFIG_HOME/ghostty"
 else echo "  skip switch checklist tests (script not installed)"; fi
@@ -1129,7 +1150,7 @@ body() { grep -v '^[#/]' "$1"; }
 [ "$(body "$CFGA/bat/config")" = "$(printf -- '--theme="auto:system"\n--theme-dark="candy-for-gnome-dark"\n--theme-light="candy-for-gnome-light"')" ] && chk ok "created: bat config holds only the three theme lines" || chk fail "created bat"
 [ "$(body "$CFGA/zellij/config.kdl")" = "$(printf 'theme_dark "candy-for-gnome-dark"\ntheme_light "candy-for-gnome-light"')" ] && chk ok "created: zellij config.kdl holds only theme_dark and theme_light" || chk fail "created zellij"
 [ "$(body "$CFGA/ghostty/config.ghostty")" = 'config-file = ?candy-for-gnome.conf' ] && chk ok "created: Ghostty config.ghostty holds only the include line" || chk fail "created ghostty"
-head -1 "$CFGA/helix/config.toml" | grep -q 'created by candy-for-gnome' && printf '%s\n' "$out" | grep -q "Created .*config.toml" && chk ok "created: a header comment names candy-for-gnome and one line per file says it was created" || chk fail "created header/message"
+head -1 "$CFGA/helix/config.toml" | grep -q 'created by candy-for-gnome' && printf '%s\n' "$out" | grep -q "\[helix\] updated candy-for-gnome.toml with" && ! printf '%s\n' "$out" | grep -q "Created " && chk ok "created: a header comment names candy-for-gnome and the app prints one success line, no separate created line" || chk fail "created header/message"
 snap=$(cat "$CFGA"/alacritty/alacritty.toml "$CFGA"/helix/config.toml "$CFGA"/yazi/theme.toml "$CFGA"/bat/config "$CFGA"/zellij/config.kdl "$CFGA"/ghostty/config.ghostty | sha1sum)
 out=$(aps just switch-theme gruvbox-material blue </dev/null 2>&1)
 [ "$(cat "$CFGA"/alacritty/alacritty.toml "$CFGA"/helix/config.toml "$CFGA"/yazi/theme.toml "$CFGA"/bat/config "$CFGA"/zellij/config.kdl "$CFGA"/ghostty/config.ghostty | sha1sum)" = "$snap" ] && ! printf '%s\n' "$out" | grep -q "Created " && chk ok "created: a second run changes nothing and creates nothing" || chk fail "created configs not idempotent"
@@ -1354,10 +1375,10 @@ force_out=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 TERM=xterm-256color)
 has_emoji "$force_out" && chk ok "forced mode prints emojis" || chk fail "forced mode printed no emoji"
 [ "$(printf '%s\n' "$force_out" | strip_emoji)" = "$plain_out" ] && chk ok "with the emoji prefixes removed, the forced output equals the plain output byte for byte" || { chk fail "forced output text differs from plain"; diff <(printf '%s\n' "$force_out" | strip_emoji) <(printf '%s\n' "$plain_out") | head -8; }
 badn=$(printf '%s\n' "$force_out" | grep -c -E '^(✅|🎨|🔄|❗|🧹|❌|🟡|🔁) (✅|🎨|🔄|❗|🧹|❌|🟡|🔁)'); [ "$badn" -eq 0 ] && chk ok "never two emojis on one line" || chk fail "double emoji on $badn line(s)"
-for want in "✅ Installed Nordic-Nord" "🎨 GTK theme is now Nordic-Nord." "🎨 Accent: cyan." "🔁 Restart GTK apps to pick up the new theme." "🧹 Removed $EM/Nordic-Nord" "❌ 'nosuchaccent' is not an accent of nordic"; do
+for want in "✅ [gtk] installed nordic" "🎨 [gtk] updated gtk-theme with nordic" "🎨 Accent: cyan." "🔁 reload or restart: gtk apps" "🧹 [gtk] removed nordic" "❌ 'nosuchaccent' is not an accent of nordic"; do
     printf '%s\n' "$force_out" | grep -qF -- "$want" && chk ok "forced: '$want'" || chk fail "forced: missing '$want'"
 done
-printf '%s\n' "$force_out" | grep -E '^(✅|🎨|🔄|❗|🧹|❌|🟡|🔁) ' | grep -q 'Shell theme is now' && chk ok "forced: the Shell theme line carries 🎨" || chk fail "forced: Shell theme line"
+printf '%s\n' "$force_out" | grep -E '^(✅|🎨|🔄|❗|🧹|❌|🟡|🔁) ' | grep -q '\[shell\] updated user-theme with' && chk ok "forced: the Shell theme line carries 🎨" || chk fail "forced: Shell theme line"
 printf '%s\n' "$force_out" | grep -E '^ ' | grep -qE '(✅|🎨|🔄|❗|🧹|❌|🟡|🔁)' && chk fail "an indented continuation line carries an emoji" || chk ok "indented and data lines carry no emoji"
 off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 CANDY_PLAIN=1 TERM=xterm-256color); has_emoji "$off" && chk fail "CANDY_PLAIN=1 did not switch emojis off" || chk ok "CANDY_PLAIN=1 switches emojis off (even when forced)"
 off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 NO_EMOJI=1 TERM=xterm-256color); has_emoji "$off" && chk fail "NO_EMOJI=1 did not switch emojis off" || chk ok "a non-empty NO_EMOJI switches emojis off"
@@ -1366,7 +1387,7 @@ off=$(emo_run -u CANDY_PLAIN CANDY_FORCE_EMOJI=1 TERM=dumb); has_emoji "$off" &&
 # a real pseudo-terminal: stdout is a terminal, so no force is needed; stderr lines are tested on their own stream
 rm -rf "$EM" "$XDG_CONFIG_HOME/gtk-4.0"; mkdir -p "$XDG_CONFIG_HOME/gtk-4.0"
 pty_out=$(env -u CANDY_PLAIN THEMES_DEST="$EM" TERM=xterm-256color script -qec "tools/themectl.sh themes install nordic" /dev/null </dev/null 2>&1 | tr -d '\r')
-printf '%s\n' "$pty_out" | grep -q '^✅ Installed Nordic-Nord' && chk ok "pty: stdout on a terminal gets the emoji without any force" || chk fail "pty: no emoji on a terminal: $(printf '%s' "$pty_out" | head -3)"
+printf '%s\n' "$pty_out" | grep -q '^✅ \[gtk\] installed nordic' && chk ok "pty: stdout on a terminal gets the emoji without any force" || chk fail "pty: no emoji on a terminal: $(printf '%s' "$pty_out" | head -3)"
 pty_out=$(env -u CANDY_PLAIN THEMES_DEST="$EM" NO_EMOJI=1 TERM=xterm-256color script -qec "tools/themectl.sh themes install nordic" /dev/null </dev/null 2>&1 | tr -d '\r')
 has_emoji "$pty_out" && chk fail "pty: NO_EMOJI ignored on a terminal" || chk ok "pty: NO_EMOJI keeps a terminal plain"
 err_tty=$(env -u CANDY_PLAIN THEMES_DEST="$EM" TERM=xterm-256color bash -c 'tools/themectl.sh themes switch nordic nosuchaccent 2>&1 >/dev/null' </dev/null)
