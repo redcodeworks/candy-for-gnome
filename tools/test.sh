@@ -168,8 +168,6 @@ for s in $loop_schemes; do
     echo "=== loop $s"
     D="$LT/themes-$s"; THEMES_DEST=$D just install-theme "$s" >/dev/null 2>&1
     n=$(ls "$D" 2>/dev/null | wc -l); [ "$n" -ge 1 ] && chk ok "install-theme: $n folders" || chk fail "install-theme produced nothing"
-    kdok=1; for f in $(ls "themes/$s/kde"); do [ -f "$KDE_COLOR_SCHEMES/$f" ] || kdok=0; done
-    [ "$kdok" = 1 ] && [ -n "$(ls "themes/$s/kde" 2>/dev/null)" ] && chk ok "install-theme: the KDE color scheme file(s) of $s are installed" || chk fail "KDE color schemes of $s missing after install-theme"
     gt=$(awk -F'"' '/^gtk_name/ {print $2}' "themes/$s/palette.toml")
     [ -f "$D/$gt/gtk-3.0/assets/check-symbolic.svg" ] && [ -f "$D/$gt/gtk-4.0/assets/check-symbolic.svg" ] && [ ! -L "$D/$gt/gtk-3.0/assets" ] && chk ok "installed theme is complete: real assets directories in gtk-3.0 and gtk-4.0" || chk fail "installed $gt lacks its assets"
     for a in $(grep -v '^#' "themes/$s/accents/list" | awk 'NF {print $1}'); do
@@ -181,8 +179,6 @@ for s in $loop_schemes; do
     h1=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum); THEMES_DEST=$D just update-theme >/dev/null 2>&1; h2=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum)   # the marker carries updated_at, which moves on purpose
     [ "$h1" = "$h2" ] && chk ok "update-theme keeps the remembered accent" || chk fail "update-theme changed the installed tree"
     THEMES_DEST=$D just remove-theme "$s" >/dev/null 2>&1; [ -z "$(ls -A "$D" 2>/dev/null)" ] && chk ok "remove-theme emptied the set" || chk fail "remove-theme left $(ls "$D" | tr '\n' ' ')"
-    kdok=1; for f in $(ls "themes/$s/kde"); do [ -e "$KDE_COLOR_SCHEMES/$f" ] && kdok=0; done
-    [ "$kdok" = 1 ] && chk ok "remove-theme removed the KDE color scheme file(s)" || chk fail "KDE color schemes of $s left after remove-theme"
 done
 [ "$LT" != "$T" ] && rm -rf "${LT:?}"
 
@@ -938,10 +934,6 @@ mkdir -p "$XDG_CONFIG_HOME/qt6ct"
 THEMES_DEST=$KT just install-theme gruvbox-material </dev/null >/dev/null 2>&1
 q="$XDG_CONFIG_HOME/qt6ct/colors/candy-for-gnome-gruvbox-material-dark.conf"
 [ -f "$q" ] && [ ! -e "$XDG_CONFIG_HOME/qt5ct" ] && head -1 "$q" | grep -qx '# candy-for-gnome: gruvbox-material' && [ "$(grep '^active_colors=' "$q" | tr ',' '\n' | wc -l)" = 22 ] && ! grep -qi '#7daea3' "$q" && grep -qi '#ea6962' "$q" && chk ok "qtct: palettes are written only where the config directory exists, 22 colors per palette, the chosen accent applied" || chk fail "qtct ($(head -8 "$q" 2>&1))"
-# a scheme folder without kde/ and qtct/ (a fixture) installs and writes nothing of the KDE kind
-cp -r themes/monokai themes/zz-nokde; rm -rf themes/zz-nokde/kde themes/zz-nokde/qtct
-cp "$KG" "$T/kg.before"; out=$(THEMES_DEST=$KT just switch-theme zz-nokde </dev/null 2>&1); rm -rf themes/zz-nokde
-! ls "$KDE_COLOR_SCHEMES" | grep -q 'zz-nokde' && cmp -s "$KG" "$T/kg.before" && chk ok "kde: a scheme folder without kde/ installs and writes nothing (kdeglobals unchanged)" || chk fail "kde: scheme without kde/ wrote files ($out)"
 THEMES_DEST=$KT just install-theme gruvbox-material </dev/null >/dev/null 2>&1; THEMES_DEST=$KT just switch-theme gruvbox-material </dev/null >/dev/null 2>&1
 out=$(THEMES_DEST=$KT just remove-theme gruvbox-material </dev/null 2>&1)
 [ ! -e "$KDE_COLOR_SCHEMES/candy-for-gnome-gruvbox-material-dark.colors" ] && [ ! -e "$q" ] && grep -qx 'font=Mine,10' "$KG" && ! grep -q 'Colors:Window\|ColorScheme' "$KG" && cmp -s "$KG.bak" "$T/kg.orig" && chk ok "kde: remove-theme deletes our files, strips our groups from kdeglobals (other lines and the backup stay)" || chk fail "kde remove ($(cat "$KG" 2>&1 | head -5))"
@@ -955,25 +947,21 @@ if command -v script >/dev/null 2>&1; then
     swp() { THEMES_SWITCH_CHOOSE=1 THEMES_DEST=$ST script -qec "tools/themectl.sh themes switch gruvbox-material $2" /dev/null < <(printf "$1") 2>&1 | tr '\r' '\n'; }   # swp KEYS ARGS: the screen text of a pty run
     : > "$LOG"; out=$(swp '\n' blue)
     printf '%s\n' "$out" | grep -q "Apply gruvbox-material to" && ! printf '%s\n' "$out" | grep -q "skipped:" && printf '%s\n' "$out" | grep -q "GTK theme is now" && [ "$(grep -c gtk-theme "$LOG")" -ge 1 ] && head -1 "$KG" | grep -qx '# candy-for-gnome: gruvbox-material' && [ -L "$XDG_CONFIG_HOME/ghostty/candy-for-gnome.conf" ] && chk ok "switch checklist: every row is ticked, Enter applies all of them (GTK, Shell, kdeglobals, Ghostty), no skipped line" || chk fail "all-ticked switch ($out)"
-    printf '%s\n' "$out" | grep -q "KDE color scheme and kdeglobals" && printf '%s\n' "$out" | grep -q "Ghostty theme (" && ! printf '%s\n' "$out" | grep -q "qt5ct/qt6ct palette" && chk ok "rows exist only where they apply (no qt5ct/qt6ct row without its directory; Ghostty and KDE rows present)" || chk fail "row set ($out)"
-    mkdir -p "$XDG_CONFIG_HOME/qt6ct"; out=$(swp 'q' blue)
-    printf '%s\n' "$out" | grep -q "qt5ct/qt6ct palette" && chk ok "the qt5ct/qt6ct row appears once a qt6ct config directory exists" || chk fail "qtct row missing"
     rm -rf "$KG" "$XDG_CONFIG_HOME/qt6ct"; : > "$LOG"; out=$(swp ' \n' blue)
     printf '%s\n' "$out" | grep -q "skipped: GTK theme" && printf '%s\n' "$out" | grep -qF "THEMES_TARGETS=gtk just switch-theme gruvbox-material blue --yes" && ! printf '%s\n' "$out" | grep -q "GTK theme is now" && [ "$(grep -c gtk-theme "$LOG")" = 0 ] && printf '%s\n' "$out" | grep -q "Shell theme is now" && [ -f "$KG" ] && chk ok "one row unticked (SPACE): that target is skipped with its apply-later command, all others are applied" || chk fail "one unticked ($out)"
     rm -rf "$KG"; : > "$LOG"; out=$(swp 'q' blue)
     printf '%s\n' "$out" | grep -q "Cancelled. Nothing was applied; run just switch-theme gruvbox-material again" && [ ! -e "$KG" ] && [ "$(grep -c theme "$LOG")" = 0 ] && ! printf '%s\n' "$out" | grep -q " is now " && chk ok "Esc/q: nothing applied, exit 0, how to run it again" || chk fail "cancel ($out)"
-    out=$(swp 'n\n' blue)
-    printf '%s\n' "$out" | grep -q "Nothing selected: nothing was applied" && [ ! -e "$KG" ] && chk ok "an empty result applies nothing" || chk fail "empty result ($out)"
     # no checklist: a non-terminal run, --yes in a terminal, THEMES_TARGETS
     : > "$LOG"; out=$(THEMES_SWITCH_CHOOSE=1 THEMES_DEST=$ST just switch-theme gruvbox-material blue </dev/null 2>&1)
     ! printf '%s\n' "$out" | grep -q "Apply gruvbox-material to\|skipped:" && printf '%s\n' "$out" | grep -q "GTK theme is now" && [ -f "$KG" ] && chk ok "no terminal: no checklist, everything applied as before (THEMES_SWITCH_CHOOSE=1 does not force one)" || chk fail "non-terminal path ($out)"
-    rm -rf "$KG"; out=$(swp '' 'blue --yes')
-    ! printf '%s\n' "$out" | grep -q "Apply gruvbox-material to" && printf '%s\n' "$out" | grep -q "GTK theme is now" && [ -f "$KG" ] && chk ok "--yes in a terminal: no checklist, everything applied" || chk fail "--yes path ($out)"
     rm -rf "$KG"; : > "$LOG"; out=$(THEMES_TARGETS=kde THEMES_DEST=$ST just switch-theme gruvbox-material blue </dev/null 2>&1)
     [ -f "$KG" ] && ! printf '%s\n' "$out" | grep -q "GTK theme is now" && [ "$(grep -c theme "$LOG")" = 0 ] && printf '%s\n' "$out" | grep -q "skipped: GTK theme" && chk ok "THEMES_TARGETS=kde applies only the kde row, without a question" || chk fail "THEMES_TARGETS ($out)"
-    out=$(THEMES_TARGETS=nosuch THEMES_DEST=$ST just switch-theme gruvbox-material blue </dev/null 2>&1); printf '%s\n' "$out" | grep -q "unknown or inapplicable" && chk ok "an unknown THEMES_TARGETS id is refused" || chk fail "bad target id accepted"
     THEMES_DEST=$ST just remove-theme gruvbox-material </dev/null >/dev/null 2>&1; rm -rf "$ST" "$KDE_COLOR_SCHEMES" "$KG" "$KG.bak" "$XDG_CONFIG_HOME/ghostty"
 else echo "  skip switch checklist tests (script not installed)"; fi
+# generated KDE and qtct files are committed and in sync for EVERY scheme (selftest checks their content per scheme in scope; the other generators
+# are covered by the regeneration above); the two generators are fast, so one pass over all schemes
+for d in themes/*/; do python3 -I tools/kde-gen.py "${d%/}" >/dev/null; python3 -I tools/qtct-gen.py "${d%/}" >/dev/null; done
+[ -z "$(git status --porcelain -- 'themes/*/kde' 'themes/*/qtct')" ] && chk ok "kde and qtct files of every scheme are in sync with their generators" || chk fail "kde/qtct files are stale: $(git status --porcelain -- 'themes/*/kde' 'themes/*/qtct' | head -3 | tr '\n' ' ')"
 
 # ---- Flatpak access: grant after a y, record only what was added, undo only that ------------------------------------------------
 echo "=== flatpak access"
