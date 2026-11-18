@@ -41,7 +41,7 @@
 # Environment: THEMES_DEST (~/.themes), ICONS_DEST (~/.local/share/icons), ICONS_URL (replaces the papirus source's URL),
 # ICON_SOURCES (another registry file), CANDY_FOR_GNOME_CACHE (~/.cache/candy-for-gnome; icon clones in icons/<source>),
 # PTYXIS_PALETTES (~/.local/share/org.gnome.Ptyxis/palettes),
-# GTKSOURCEVIEW_STYLES, FLATPAK_APPS,
+# GTKSOURCEVIEW_STYLES, FLATPAK_APPS, KDE_COLOR_SCHEMES (~/.local/share/color-schemes), KDEGLOBALS (~/.config/kdeglobals),
 # FORCE=1 (replace or remove folders that were not installed by candy-for-gnome without asking).
 # GNOME reads dconf. GSETTINGS_BACKEND=keyfile (set by the Ghostty AppImage's shells, which bundle GTK without the dconf module) would send every
 # gsettings call to a private file GNOME never reads, and make `get` answer from it: ignore that one value (others are left alone).
@@ -912,30 +912,42 @@ gh_status() {    # a line for list-themes, only when the Ghostty config director
 # Per-application themes (Alacritty, Helix, Yazi, kitty, bat, eza, zellij, Claude Code): tools/apps.sh
 # shellcheck source=tools/apps.sh
 . "$root/tools/apps.sh"
+# KDE color schemes and qt5ct/qt6ct palettes (pilot, featured schemes): tools/kde.sh
+# shellcheck source=tools/kde.sh
+. "$root/tools/kde.sh"
 
 # ---- Flatpak access (themes and icons: grant after switch-theme, undo after the last removal) -------------------
-fp_paths=(xdg-config/gtk-3.0:ro xdg-config/gtk-4.0:ro xdg-data/icons:ro '~/.themes:ro')   # literal tilde, as flatpak stores it; the only entries candy-for-gnome ever manages
-fp_state="$state/flatpak-overrides"
+fp_paths=(xdg-config/gtk-3.0:ro xdg-config/gtk-4.0:ro xdg-data/icons:ro '~/.themes:ro' xdg-config/kdeglobals:ro xdg-data/color-schemes:ro)   # literal tilde, as flatpak stores it; the filesystem entries candy-for-gnome ever manages (the last two are for KDE/Kirigami apps, see tools/kde.sh)
+fp_envs=(QT_QPA_PLATFORMTHEME=kde)   # the one variable it manages: LOWERCASE kde makes the KDE platform theme read kdeglobals (`KDE` makes KColorSchemeManager force Breeze Dark)
+fp_state="$state/flatpak-overrides"   # recorded entries, one per line: a filesystem entry as is, a variable as env:NAME
 fp_have() { flatpak override --user --show 2>/dev/null | sed -n 's/^filesystems=//p' | tr ';' '\n' | grep -vx '' || true; }
-fp_cmd_add() { local c="flatpak override --user" p; for p in "$@"; do c="$c --filesystem=$p"; done; echo "$c"; }
-fp_cmd_del() { local c="flatpak override --user" p; for p in "$@"; do c="$c --nofilesystem=${p%:*}"; done; echo "$c"; }
-fp_check() {   # after switch-theme: offer the missing read-only entries
+fp_env_have() { flatpak override --user --show 2>/dev/null | sed -n '/^\[Environment\]/,/^\[/{/^\[/!p}' || true; }   # NAME=value lines
+fp_cmd_add() { local c="flatpak override --user" p; for p in "$@"; do case "$p" in env:*) c="$c --env=${p#env:}" ;; *) c="$c --filesystem=$p" ;; esac; done; echo "$c"; }
+fp_cmd_del() { local c="flatpak override --user" p; for p in "$@"; do case "$p" in env:*) c="$c --unset-env=$(n=${p#env:}; echo "${n%%=*}")" ;; *) c="$c --nofilesystem=${p%:*}" ;; esac; done; echo "$c"; }
+fp_check() {   # after switch-theme: offer the missing read-only entries and the KDE platform theme variable
     command -v flatpak >/dev/null 2>&1 || return 0
-    local have p a miss=()
-    have=$(fp_have)
+    local have envs p a n cur miss=()
+    have=$(fp_have); envs=$(fp_env_have)
     for p in "${fp_paths[@]}"; do printf '%s\n' "$have" | grep -qxF -- "$p" || miss+=("$p"); done
+    for p in "${fp_envs[@]}"; do
+        n="${p%%=*}"; cur=$(printf '%s\n' "$envs" | sed -n "s/^$n=//p" | head -n1)
+        if printf '%s\n' "$envs" | grep -qxF -- "$p"; then continue
+        elif [ -n "$cur" ]; then echo "Note: the global Flatpak override sets $n=$cur; KDE apps need $p to read the theme colors. Not changed (set it yourself: flatpak override --user --env=$p)."
+        else miss+=("env:$p"); fi
+    done
     [ "${#miss[@]}" -gt 0 ] || return 0
-    echo "Flatpak sandbox: no global read-only access yet to: ${miss[*]}"
+    echo "Flatpak sandbox: no global access yet to: ${miss[*]}"
     if [ "$tty_in" = 1 ]; then
-        read -r -u 3 -p "Flatpak apps (for example Calculator, Text Editor) cannot see your themes. Allow read-only access to these folders for all Flatpaks? [y/N] " a || a=n
+        read -r -u 3 -p "Flatpak apps (for example Calculator, Text Editor, KDE apps) cannot see your themes. Allow read-only access to these folders for all Flatpaks? [y/N] " a || a=n
         case "$a" in
             [yY]*) for p in "${miss[@]}"; do
-                       if flatpak override --user --filesystem="$p"; then state_add_line "$fp_state" "$p"; else echo "Could not grant $p." >&2; fi
-                   done; echo "Granted; restart the Flatpak apps. candy-for-gnome removes exactly these again when you remove the last theme and icon set." ;;
+                       if flatpak override --user $(fp_cmd_add "$p" | sed 's/^flatpak override --user //'); then state_add_line "$fp_state" "${p%%=*}"; else echo "Could not grant $p." >&2; fi
+                   done; echo "Granted; restart the Flatpak apps. To undo exactly this: $(fp_cmd_del "${miss[@]}"); candy-for-gnome also offers it when you remove the last theme and icon set." ;;
             *) echo "Left the Flatpak sandbox alone." ;;
         esac
     else
         echo "Not changing the Flatpak sandbox without a terminal. To allow it, run:"; echo "  $(fp_cmd_add "${miss[@]}")"
+        echo "  To undo exactly that: $(fp_cmd_del "${miss[@]}")"
         echo "  (or run switch-theme in a terminal and answer y; candy-for-gnome then records what it added and removes only that later)"
     fi
 }
@@ -956,7 +968,7 @@ fp_undo() {    # after remove: when nothing of ours is installed any more, offer
     if [ "$tty_in" = 1 ]; then
         read -r -u 3 -p "Remove the Flatpak read access that candy-for-gnome added? [y/N] " a || a=n
         case "$a" in
-            [yY]*) for p in "${ents[@]}"; do flatpak override --user --nofilesystem="${p%:*}" || echo "Could not remove $p." >&2; done
+            [yY]*) for p in "${ents[@]}"; do flatpak override --user $(fp_cmd_del "$p" | sed 's/^flatpak override --user //') || echo "Could not remove $p." >&2; done
                    rm -f "$fp_state"; echo "Removed the Flatpak access candy-for-gnome had added (${ents[*]})." ;;
             *) echo "Left the Flatpak access in place." ;;
         esac
@@ -1204,7 +1216,7 @@ adwaita_theme_switch() {
     adw_shell
     adw_libadwaita
     pty_cleanup; adw_ptyxis; adw_gsv
-    gh_adwaita; app_adwaita
+    gh_adwaita; app_adwaita; kde_unglobals
     echo "Restart GTK apps to pick up the new theme."
 }
 
@@ -1239,7 +1251,7 @@ case "$action" in
         for nm in "${names[@]}"; do
             if [ "$kind" = icons ] && [ ! -d "$(clone_of "${i_src[$nm]}")/.git" ]; then echo "Skipping $nm: its source ${i_src[$nm]} is not available." >&2; continue; fi
             before=$installed_n; copy_item "$nm"; if [ "$installed_n" -gt "$before" ]; then just_installed+=("$nm"); fi
-            if [ "$kind" = themes ]; then pty_cleanup; gsv_install "$nm"; gh_install "$nm"; app_install "$nm"; fi; done
+            if [ "$kind" = themes ]; then pty_cleanup; gsv_install "$nm"; gh_install "$nm"; app_install "$nm"; kde_install "$nm"; fi; done
         if [ "$installed_n" -eq 0 ]; then echo "Nothing was installed (see the messages above)."
         else
             if [ "$kind" = themes ]; then echo "Next: run switch-theme to use it."; else echo "Next: run switch-icon to use it."; fi
@@ -1255,7 +1267,7 @@ case "$action" in
         for nm in "${inst[@]}"; do
             if [ "$kind" = icons ] && [ ! -d "$(clone_of "${i_src[$nm]}")/.git" ]; then echo "Skipping $nm: its source ${i_src[$nm]} is not available." >&2; continue; fi
             if [ "$kind" = icons ]; then copy_item "$nm"; n=$((n+1))
-            else while read -r f; do if [ -e "$dest/$f" ] && copy_folder "$f" "$nm"; then n=$((n+1)); fi; done < <(folders_of "$nm"); pty_cleanup; gsv_refresh "$nm"; gh_refresh "$nm"; app_refresh "$nm"; fi
+            else while read -r f; do if [ -e "$dest/$f" ] && copy_folder "$f" "$nm"; then n=$((n+1)); fi; done < <(folders_of "$nm"); pty_cleanup; gsv_refresh "$nm"; gh_refresh "$nm"; app_refresh "$nm"; kde_refresh "$nm"; fi
         done
         if [ "$kind" = themes ]; then gh_refresh adwaita; app_refresh adwaita; fi   # the neutral files of switch-theme Adwaita, only where they exist and are ours
         [ "$n" -gt 0 ] || echo "None of the ${noun}s from this source is installed in $dest." ;;
@@ -1283,7 +1295,7 @@ case "$action" in
                 fi
             done < <(folders_of "${items[i]}")
             if [ "$kind" = themes ] && ! is_installed "${items[i]}"; then state_del "$state/accents" "${items[i]}"; fi
-            if [ "$kind" = themes ]; then pty_cleanup; gsv_remove "${items[i]}"; gh_remove "${items[i]}"; app_remove "${items[i]}"; fi
+            if [ "$kind" = themes ]; then pty_cleanup; gsv_remove "${items[i]}"; gh_remove "${items[i]}"; app_remove "${items[i]}"; kde_remove "${items[i]}"; fi
         done
         # shared hidden base dirs (Fluent): remove one only when no remaining installed set links into it
         if [ "$kind" = icons ]; then
@@ -1320,7 +1332,7 @@ case "$action" in
                 accent_pick="$accent_arg"
             else choose_accent "${items[i]}"; fi
             if [ -n "$accent_pick" ]; then state_set "$state/accents" "${items[i]}" "$accent_pick"; fi
-            copy_item "${items[i]}"; pty_cleanup; gsv_install "${items[i]}"; gh_install "${items[i]}"; app_install "${items[i]}"
+            copy_item "${items[i]}"; pty_cleanup; gsv_install "${items[i]}"; gh_install "${items[i]}"; app_install "${items[i]}"; kde_install "${items[i]}"
             [ -z "$accent_pick" ] || echo "Accent: $accent_pick."
         fi
         if [ "$kind" = icons ]; then
@@ -1387,7 +1399,7 @@ case "$action" in
                 else echo "$target differs from the scheme's libadwaita file; left alone (run in a terminal to replace it)."
                 fi
             fi
-            pty_cleanup; pty_switch "$sc"; gsv_switch "$sc"; gh_switch "$sc"; app_switch "$sc"; fp_check
+            pty_cleanup; pty_switch "$sc"; gsv_switch "$sc"; gh_switch "$sc"; app_switch "$sc"; kde_switch "$sc"; fp_check
             echo "Restart GTK apps to pick up the new theme."
         fi ;;
 
