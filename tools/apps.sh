@@ -81,6 +81,7 @@ app_refresh() {   # update-theme: refresh only files that exist and are ours; Cl
         done < <(app_targets "$a" "$s")
         [ "$a" != bat ] || [ "$did" = 0 ] || app_bat_cache
     done
+    if app_present bat && bat_repair "$(app_dir bat)/config"; then echo "[bat] updated config: --theme auto:system is macOS-only, now --theme auto"; fi
     claude_refresh "$s"
     return 0
 }
@@ -217,9 +218,14 @@ yz_edit() {       # set dark and light inside the [flavor] table (replace in pla
     fi
     app_write "$f" "$f.candy-tmp"
 }
+bat_repair() {    # bat_repair FILE: candy's old line --theme="auto:system" (macOS only, bat on Linux warns and falls back to its default) becomes --theme="auto"; only that exact line, and only in a file that also has candy's own dark line
+    local f="$1"
+    [ -f "$f" ] && grep -qxF -- '--theme="auto:system"' "$f" && grep -qxF -- '--theme-dark="candy-for-gnome-dark"' "$f" || return 1
+    sed 's/^--theme="auto:system"$/--theme="auto"/' "$f" > "$f.candy-tmp" && app_write "$f" "$f.candy-tmp"
+}
 bat_edit() {      # replace --theme / --theme-dark / --theme-light lines in place, append the missing ones
     awk '
-        BEGIN { t = "--theme=\"auto:system\""; dk = "--theme-dark=\"candy-for-gnome-dark\""; lt = "--theme-light=\"candy-for-gnome-light\"" }
+        BEGIN { t = "--theme=\"auto\""; dk = "--theme-dark=\"candy-for-gnome-dark\""; lt = "--theme-light=\"candy-for-gnome-light\"" }
         /^[ \t]*--theme=/ { if (!a) print t; a = 1; next }
         /^[ \t]*--theme-dark=/ { if (!b) print dk; b = 1; next }
         /^[ \t]*--theme-light=/ { if (!c) print lt; c = 1; next }
@@ -289,13 +295,14 @@ bat_switch() {
     app_ready bat "$s" && app_links_apply bat "$s" || return 0
     app_bat_cache
     app_ok bat themes "$s"
-    if [ -f "$f" ] && grep -qxF -- '--theme-dark="candy-for-gnome-dark"' "$f" && grep -qxF -- '--theme-light="candy-for-gnome-light"' "$f" && grep -qxF -- '--theme="auto:system"' "$f"; then :
+    bat_repair "$f" || true
+    if [ -f "$f" ] && grep -qxF -- '--theme-dark="candy-for-gnome-dark"' "$f" && grep -qxF -- '--theme-light="candy-for-gnome-light"' "$f" && grep -qxF -- '--theme="auto"' "$f"; then :
     elif [ -f "$f" ]; then
-        app_offer "$f" "Set --theme=\"auto:system\", --theme-dark=\"candy-for-gnome-dark\" and --theme-light=\"candy-for-gnome-light\" in $f (an existing --theme line is replaced; nothing else changes)?" \
-'--theme="auto:system"
+        app_offer "$f" "Set --theme=\"auto\", --theme-dark=\"candy-for-gnome-dark\" and --theme-light=\"candy-for-gnome-light\" in $f (an existing --theme line is replaced; nothing else changes)?" \
+'--theme="auto"
 --theme-dark="candy-for-gnome-dark"
 --theme-light="candy-for-gnome-light"' bat_edit
-    else app_create "$f" '#' "$(printf -- '--theme="auto:system"\n--theme-dark="candy-for-gnome-dark"\n--theme-light="candy-for-gnome-light"')" || { echo "bat: could not create $f. To use the themes, create it with:"; printf '  --theme="auto:system"\n  --theme-dark="candy-for-gnome-dark"\n  --theme-light="candy-for-gnome-light"\n'; }; fi
+    else app_create "$f" '#' "$(printf -- '--theme="auto"\n--theme-dark="candy-for-gnome-dark"\n--theme-light="candy-for-gnome-light"')" || { echo "bat: could not create $f. To use the themes, create it with:"; printf '  --theme="auto"\n  --theme-dark="candy-for-gnome-dark"\n  --theme-light="candy-for-gnome-light"\n'; }; fi
 }
 eza_switch() {
     local s="$1" d t a v l; d=$(app_dir eza); l="$d/theme.yml"
