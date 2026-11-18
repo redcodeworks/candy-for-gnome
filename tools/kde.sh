@@ -3,8 +3,7 @@
 # KDE color schemes and qt5ct/qt6ct palettes for themectl.sh (sourced, not run). The model in one sentence: for each scheme the generators
 # (tools/kde-gen.py, tools/qtct-gen.py) write a KDE `.colors` scheme and a qtct palette per variant from the same roles as the other generators, and
 # switch-theme installs the chosen variant where KDE and Qt apps look (the live ~/.config/kdeglobals, color-schemes/, the qtct colors dirs).
-# PILOT: only the schemes that have <scheme>/kde (today the featured ones, see QT_SCOPE in tools/appthemes.py) take part; every function does nothing for
-# another scheme, so extending it is a generator change only.
+# Every scheme has <scheme>/kde and <scheme>/qtct; a scheme folder without them (a fixture) is skipped by every function.
 # Rules (the repo's marker rules): files carry `# candy-for-gnome: <scheme>` on their first line; a same-named file without it is never replaced silently
 # (pty_may_touch: prompt, FORCE=1, or refusal). ~/.config/kdeglobals is a user file KDE apps also write: it is created when absent, MERGED when ours
 # (marker, or a ColorScheme=candy-for-gnome-* line, because KDE may rewrite the file and drop comments), and otherwise (for example written by Noctalia's
@@ -13,7 +12,7 @@
 # config directory exists (nothing is created for software that is not there) and qt5ct.conf/qt6ct.conf are never edited (a hint prints).
 kde_dir="${KDE_COLOR_SCHEMES:-${XDG_DATA_HOME:-$HOME/.local/share}/color-schemes}"
 kde_globals="${KDEGLOBALS:-$cfg/kdeglobals}"
-kde_has() { [ -n "$(ls "$(sdir "$1")/kde" 2>/dev/null)" ]; }   # does scheme $1 take part in the pilot
+kde_has() { [ -n "$(ls "$(sdir "$1")/kde" 2>/dev/null)" ]; }   # does scheme $1 have KDE files (a fixture folder without them is skipped)
 kde_variant() {   # kde_variant SCHEME: dark or light by the system colour scheme; the other one when the scheme has only that variant
     local w o=light; w=$(pty_mode); [ "$w" = light ] && o=dark
     if [ -e "$(sdir "$1")/kde/candy-for-gnome-$1-$w.colors" ]; then echo "$w"; else echo "$o"; fi

@@ -47,16 +47,6 @@ def fit(bg, fg, toward, need=4.5):
         n += 1; c = mix(bg, toward, 0.05 * n)
     return c
 
-# KDE color schemes and qtct palettes are a PILOT (Kevin, 2026-11-17): generated for the featured schemes only. One switch turns them on for every
-# scheme: set QT_SCOPE = 'all' (the installer works on whatever <scheme>/kde and <scheme>/qtct hold, so nothing else changes). The featured list is the
-# one line of tools/themectl.sh (FEATURED_THEMES), the same one tools/test.sh and the CI scope read.
-QT_SCOPE = 'featured'
-def featured():
-    import re
-    m = re.search(r'^FEATURED_THEMES="\$\{FEATURED_THEMES-(.*)\}"$', open(os.path.join(HERE, 'themectl.sh')).read(), re.M)
-    return m.group(1).split() if m else []
-def in_qt_scope(scheme): return QT_SCOPE == 'all' or scheme in featured()
-
 def qt_roles(S, v):
     """The role table shared by tools/kde-gen.py and tools/qtct-gen.py (lower-case hex): the scheme's own roles, accent = the default accent of the
     toolkit themes with the ink the GTK themes put on it (palette-from-scheme.build). Text colours come from the editor palette (4.5:1 on the

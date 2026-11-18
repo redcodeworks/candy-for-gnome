@@ -274,16 +274,15 @@ def apps():
         for tk in ('text', 'claude', 'permission', 'success', 'error', 'warning', 'suggestion'):
             ok(cr(ov[tk], B) >= 4.5, 'claude %s: %s on the editor background %.2f:1' % (slot, tk, cr(ov[tk], B)))
         ok(cr(ov['text'], ov['userMessageBackground']) >= 4.5, 'claude %s: text on the user message background' % slot)
-        if A.in_qt_scope(scheme):
-            kd = open('%s/kde/%s.colors' % (D, A.ident(scheme, slot))).read()
-            def kc(g, k): return [int(x) for x in re.search(r'\[%s\]\n(?:[A-Za-z]+=[^\n]*\n)*?%s=(\d+),(\d+),(\d+)' % (re.escape(g), k), kd).groups()]
-            hx3 = lambda t: '#%02x%02x%02x' % tuple(t)
-            for g in ('Window', 'View', 'Button', 'Tooltip'):
-                ok(cr(hx3(kc('Colors:' + g, 'ForegroundNormal')), hx3(kc('Colors:' + g, 'BackgroundNormal'))) >= 4.5, 'kde %s: %s text on its background' % (slot, g))
-            ok(cr(hx3(kc('Colors:Selection', 'ForegroundNormal')), hx3(kc('Colors:Selection', 'BackgroundNormal'))) >= 4.5, 'kde %s: selection text on the accent' % slot)
-            ok('ColorScheme=%s\nName=%s\n' % ((A.ident(scheme, slot),) * 2) in kd, 'kde %s: ColorScheme and Name are the file name' % slot)
-            qt = open('%s/qtct/%s.conf' % (D, A.ident(scheme, slot))).read()
-            ok(all(len(re.search(k + r'=(.*)', qt).group(1).split(', ')) == 22 for k in ('active_colors', 'disabled_colors', 'inactive_colors')), 'qtct %s: three palettes of 22 colours' % slot)
+        kd = open('%s/kde/%s.colors' % (D, A.ident(scheme, slot))).read()
+        def kc(g, k): return [int(x) for x in re.search(r'\[%s\]\n(?:[A-Za-z]+=[^\n]*\n)*?%s=(\d+),(\d+),(\d+)' % (re.escape(g), k), kd).groups()]
+        hx3 = lambda t: '#%02x%02x%02x' % tuple(t)
+        for g in ('Window', 'View', 'Button', 'Tooltip'):
+            ok(cr(hx3(kc('Colors:' + g, 'ForegroundNormal')), hx3(kc('Colors:' + g, 'BackgroundNormal'))) >= 4.5, 'kde %s: %s text on its background' % (slot, g))
+        ok(cr(hx3(kc('Colors:Selection', 'ForegroundNormal')), hx3(kc('Colors:Selection', 'BackgroundNormal'))) >= 4.5, 'kde %s: selection text on the accent' % slot)
+        ok('ColorScheme=%s\nName=%s\n' % ((A.ident(scheme, slot),) * 2) in kd, 'kde %s: ColorScheme and Name are the file name' % slot)
+        qt = open('%s/qtct/%s.conf' % (D, A.ident(scheme, slot))).read()
+        ok(all(len(re.search(k + r'=(.*)', qt).group(1).split(', ')) == 22 for k in ('active_colors', 'disabled_colors', 'inactive_colors')), 'qtct %s: three palettes of 22 colours' % slot)
         ey = open('%s/eza/candy-for-gnome-%s-%s.yml' % (D, scheme, slot)).read()
         low = [x for x in re.findall(r'foreground: "(#[0-9a-f]{6})"', ey) if cr(x, B) < 4.5 - 0.01]
         ok(all(cr(x, B) >= 3.0 for x in low) and set(low) <= {v.syn['comment']}, 'eza %s: every colour has 4.5:1 on the editor background (only the comment colour, 3:1, is lower)' % slot)
