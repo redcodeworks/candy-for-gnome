@@ -40,8 +40,17 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+      # dnf5 keeps what it downloads in /var/cache/libdnf5 only with keepcache=1; the cache is keyed on the package list, so a repeat run reads the rpms
+      # from the cache instead of downloading them (a miss just downloads; a new Fedora build of a package is fetched by dnf as usual). The directory does not
+      # exist in the bare container: restoring creates it, and the post step saves it after the install.
+      - name: Cache the downloaded packages
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: /var/cache/libdnf5
+          key: dnf-${{ hashFiles('tools/test-packages.txt') }}
+          restore-keys: dnf-
       - name: Install the test dependencies (the same list the local test container uses)
-        run: dnf -y install $(cat tools/test-packages.txt)
+        run: dnf -y --setopt=keepcache=1 install $(cat tools/test-packages.txt)
       - name: Trust the workspace for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Run the test suite
