@@ -127,7 +127,7 @@ removes the theme files and never edits your configs; it tells you what you may 
 | Helix | the light/dark setting when you run `switch-theme` | `theme = "candy-for-gnome"` | `:config-reload` |
 | Yazi | the terminal's light/dark | `dark = "candy-for-gnome-dark"` and `light = "candy-for-gnome-light"` in `[flavor]` of `theme.toml` (colors in your own `theme.toml` still win) | restart Yazi |
 | kitty | the system light/dark (0.38+) | nothing | automatic |
-| bat | the terminal's light/dark | `--theme="auto:system"`, `--theme-dark="candy-for-gnome-dark"`, `--theme-light="candy-for-gnome-light"` | the cache is rebuilt for you |
+| bat | the terminal's light/dark | `--theme="auto"`, `--theme-dark="candy-for-gnome-dark"`, `--theme-light="candy-for-gnome-light"` | the cache is rebuilt for you |
 | eza | the light/dark setting when you run `switch-theme` | your own `theme.yml` is moved aside as `theme.yml.candy-bak` (asked once) and replaced by a link; `EZA_COLORS` or `LS_COLORS` still override it | immediate |
 | zellij | the system light/dark | `theme_dark "candy-for-gnome-dark"` and `theme_light "candy-for-gnome-light"` | live reload; restart a session if needed |
 | Claude Code | the light/dark setting when you run `switch-theme` | pick it once with `/theme` (stored as `custom:candy-for-gnome`); your `settings.json` is never edited | restart Claude Code once if its themes folder is new |
