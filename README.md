@@ -23,8 +23,8 @@ just install-icon           # checklist; or: just install-icon Papirus-Dark
 just switch-icon Papirus-Dark
 ```
 
-Themes go to `~/.themes`, icons to `~/.local/share/icons`, as real copies. Checklists and choosers use a built-in picker: SPACE ticks,
-`/` filters, ENTER confirms, q cancels (`THEMES_PICKER=gum` opts into gum if you prefer it).
+Themes go to `~/.themes`, icons to `~/.local/share/icons`, as real copies. Checklists use `gum` when it is installed, otherwise a built-in picker: SPACE ticks,
+`/` filters, ENTER confirms, q cancels.
 
 In a terminal, `switch-theme` then lists what it will apply, with every row ticked: press Enter to apply everything, or untick what you do not want; skipped rows are named together with the command to apply them later. `--yes` (for example `just switch-theme nordic cyan --yes`) skips the list.
 
