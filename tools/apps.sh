@@ -56,6 +56,7 @@ app_install() {   # app_install SCHEME: copy the per-scheme files of every insta
     local s="$1" a src dst n
     for a in "${app_names[@]}"; do
         app_present "$a" || continue
+        sw_on "app:$a" || continue
         n=0
         while IFS='|' read -r src dst; do
             pty_may_touch "$s" Replace "$dst" || continue
@@ -375,7 +376,7 @@ app_adwaita() {   # switch-theme Adwaita: for every installed app that has a MAN
 }
 app_switch() {    # app_switch SCHEME: every installed app
     local s="$1" a
-    for a in "${app_names[@]}"; do app_present "$a" && "${a}_switch" "$s"; done
+    for a in "${app_names[@]}"; do if app_present "$a" && sw_on "app:$a"; then "${a}_switch" "$s"; fi; done
     return 0
 }
 apps_status() {   # for list-themes: nothing when no supported app is installed; else one line with the themed apps and one naming the skipped ones

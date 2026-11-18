@@ -34,9 +34,9 @@ kde_accent() {    # kde_accent FILE SCHEME VARIANT: put the remembered accent in
 kde_targets() {   # kde_targets SCHEME: "<source>|<destination>" of every file to install: color-schemes always, qtct palettes where qt5ct/qt6ct has a config dir
     local s="$1" f q
     kde_has "$s" || return 0
-    for f in "$(sdir "$s")"/kde/*.colors; do echo "$f|$kde_dir/$(basename "$f")"; done
+    if sw_on kde; then for f in "$(sdir "$s")"/kde/*.colors; do echo "$f|$kde_dir/$(basename "$f")"; done; fi
     for q in qt5ct qt6ct; do
-        [ -d "$cfg/$q" ] || continue
+        [ -d "$cfg/$q" ] && sw_on qtct || continue
         for f in "$(sdir "$s")"/qtct/*.conf; do echo "$f|$cfg/$q/colors/$(basename "$f")"; done
     done
     return 0
@@ -85,6 +85,17 @@ kde_switch() {    # switch-theme: make the installed color scheme the live one, 
     local s="$1" v c f q n ask=n
     kde_has "$s" || return 0
     v=$(kde_variant "$s"); c="$kde_dir/candy-for-gnome-$s-$v.colors"
+    if sw_on kde; then kde_globals_switch "$s" "$v" "$c"; fi
+    for q in qt5ct qt6ct; do
+        [ -d "$cfg/$q" ] && sw_on qtct || continue
+        f="$cfg/$q/colors/candy-for-gnome-$s-$v.conf"; [ -e "$f" ] || continue
+        echo "Next: in $q (Appearance, Palette: Custom) pick candy-for-gnome-$s-$v, or set color_scheme_path=$f and custom_palette=true under [Appearance] in $cfg/$q/$q.conf (not edited here)."
+    done
+    if sw_on kde || sw_on qtct; then echo "Restart KDE and Qt apps to pick up the colors (they read kdeglobals when they start)."; fi
+    return 0
+}
+kde_globals_switch() {    # kde_globals_switch SCHEME VARIANT COLORS_FILE: the kdeglobals handling of switch-theme (rules in the header)
+    local s="$1" v="$2" c="$3" ask=n
     if ! pty_ours "$s" "$c"; then echo "KDE colors not applied: $c is missing or not ours (run install-theme $s first)."; return 0; fi
     mkdir -p "$(dirname "$kde_globals")"
     if [ ! -e "$kde_globals" ]; then
@@ -102,12 +113,6 @@ kde_switch() {    # switch-theme: make the installed color scheme the live one, 
             *) echo "Left $kde_globals alone: it was not written by candy-for-gnome, so KDE and Kirigami apps keep its colors. To hand it over, turn off the program that writes it (Noctalia: its KDE template) and run switch-theme in a terminal and answer y (or FORCE=1)." >&2 ;;
         esac
     fi
-    for q in qt5ct qt6ct; do
-        [ -d "$cfg/$q" ] || continue
-        f="$cfg/$q/colors/candy-for-gnome-$s-$v.conf"; [ -e "$f" ] || continue
-        echo "Next: in $q (Appearance, Palette: Custom) pick candy-for-gnome-$s-$v, or set color_scheme_path=$f and custom_palette=true under [Appearance] in $cfg/$q/$q.conf (not edited here)."
-    done
-    echo "Restart KDE and Qt apps to pick up the colors (they read kdeglobals when they start)."
     return 0
 }
 kde_refresh() {   # update-theme: refresh the installed copies that are ours, and kdeglobals when it names this scheme

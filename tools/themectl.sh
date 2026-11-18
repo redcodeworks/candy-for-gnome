@@ -43,6 +43,7 @@
 # ICON_SOURCES (another registry file), CANDY_FOR_GNOME_CACHE (~/.cache/candy-for-gnome; icon clones in icons/<source>),
 # PTYXIS_PALETTES (~/.local/share/org.gnome.Ptyxis/palettes),
 # GTKSOURCEVIEW_STYLES, FLATPAK_APPS, KDE_COLOR_SCHEMES (~/.local/share/color-schemes), KDEGLOBALS (~/.config/kdeglobals),
+# THEMES_YES=1 / THEMES_SWITCH_CHOOSE=0 (no switch-theme checklist), THEMES_TARGETS=id,id (apply only those targets),
 # FORCE=1 (replace or remove folders that were not installed by candy-for-gnome without asking).
 # GNOME reads dconf. GSETTINGS_BACKEND=keyfile (set by the Ghostty AppImage's shells, which bundle GTK without the dconf module) would send every
 # gsettings call to a private file GNOME never reads, and make `get` answer from it: ignore that one value (others are left alone).
@@ -57,7 +58,7 @@ echo() {
     local e=""
     case "$1" in
         Refused:\ *|Could\ not\ *|install.sh\ failed*|install.sh\ did\ not*|No\ accent\ map*|usage:\ *|*\ is\ not\ a\ theme\ here*|*\ is\ not\ an\ icon\ set\ here*|*\ is\ not\ an\ accent\ of\ *) e=❌ ;;
-        WARNING:\ *|warning:\ *|Note:\ *|*\ not\ applied*|Left\ *\ alone*|Not\ switching\ the\ *|Skipping\ *) e=🟡 ;;
+        WARNING:\ *|warning:\ *|skipped:\ *|Note:\ *|*\ not\ applied*|Left\ *\ alone*|Not\ switching\ the\ *|Skipping\ *) e=🟡 ;;
         Installed\ *|Created\ *) e=✅ ;;
         Updated\ *|Replaced\ *|Edited\ *) e=🔄 ;;
         Removed\ *) e=🧹 ;;
@@ -72,7 +73,9 @@ set -euo pipefail
 
 # the guard asks on a copy of the original stdin (fd 3): the loops below read their own input from process substitutions
 tty_in=0; if [ -t 0 ]; then tty_in=1; exec 3<&0; fi
-kind="${1:-}"; action="${2:-}"; want="${3:-}"; accent_arg="${4:-}"
+kind="${1:-}"; action="${2:-}"; want="${3:-}"; accent_arg="${4:-}"; yes_arg="${5:-}"
+case "$accent_arg" in --yes|-y) yes_arg=--yes; accent_arg="" ;; esac   # `switch-theme <name> --yes` (the recipe passes it as the 5th argument)
+case "$want" in --yes|-y) yes_arg=--yes; want="" ;; esac
 case "$kind" in help|--help|-h) cat <<'HELP'
 candy-for-gnome: themes and icon sets (just <recipe>; behind the image: ujust gnome-candy <recipe>).
 
@@ -83,6 +86,10 @@ candy-for-gnome: themes and icon sets (just <recipe>; behind the image: ujust gn
   remove-theme [name]            remove an installed theme (checklist without a name); folders candy-for-gnome did not install are not touched
   switch-theme [name] [accent]   make a theme the GTK, Shell and libadwaita theme and select the matching Ptyxis palette, Text Editor
                                  style, (when ~/.config/ghostty exists) the Ghostty theme and the themes of installed Alacritty, Helix, Yazi, kitty, bat, eza, zellij and Claude Code (tools/apps.sh); the accent is one of the theme's own colors (asked when omitted)
+                                 on a terminal it then shows a checklist of what to apply (GTK, Shell, libadwaita, Ptyxis, editors, terminals and tools, KDE
+                                 and Qt colors), every row ticked: Enter applies all (as before), unticked rows are skipped and named with the command to
+                                 apply them later; --yes, THEMES_YES=1, THEMES_SWITCH_CHOOSE=0 or a non-terminal run skip the checklist, and
+                                 THEMES_TARGETS=gtk,shell,... applies just those rows
                                  `switch-theme Adwaita` (first entry of the list) hands everything back to the GNOME and tool defaults and is undone by
                                  switching to a scheme again; `switch-icon Adwaita` sets the GNOME default icon theme
   flatpak-access                 the only command that changes the global Flatpak override: shows what is missing (read-only access to the theme
@@ -634,13 +641,13 @@ chosen=(); on=()
 choose_many() {
     local header="$1"; shift; local cand=("$@") i a mark rc=0 handler
     chosen=()
-    [ "$kind" != themes ] || theme_swatches
+    [ "$kind" != themes ] || [ -n "${pm_plain:-}" ] || theme_swatches
     handler=$(pick_handler); picker_used=$handler
     if [ "$handler" = gum ]; then
         gum_run many "$header" "${cand[@]}"; return 0
     fi
     tui_many "$header" "${cand[@]}" || rc=$?
-    if [ "$rc" -eq 1 ]; then echo "Cancelled."; exit 0
+    if [ "$rc" -eq 1 ]; then echo "Cancelled.${cancel_hint:+ $cancel_hint}"; exit 0
     elif [ "$rc" -eq 2 ]; then
         while true; do
             echo; echo "$header:"
@@ -651,7 +658,7 @@ choose_many() {
             read -r -p "Number toggles, a = all, n = none, Enter = confirm, q = quit: " a || a=q
             case "$a" in
                 "") break ;;
-                q) echo "Cancelled."; exit 0 ;;
+                q) echo "Cancelled.${cancel_hint:+ $cancel_hint}"; exit 0 ;;
                 a) for i in "${cand[@]}"; do on[i]=1; done ;;
                 n) for i in "${cand[@]}"; do on[i]=0; done ;;
                 *[!0-9]*) echo "Not a number: $a" ;;
@@ -986,6 +993,56 @@ fp_remove() {   # `flatpak-access-remove`: undo exactly what flatpak-access reco
     else echo "Not changing the Flatpak override without a terminal: run the command above, then delete $fp_state."; fi
 }
 state_add_line() { mkdir -p "$(dirname "$1")"; grep -qxF -- "$2" "$1" 2>/dev/null || echo "$2" >> "$1"; }
+# ---- switch-theme targets: which parts of the chosen theme to apply -------------------------------------------------------------
+# One sentence: switch-theme asks which of its targets to apply, all ticked by default, and applies exactly the ticked ones. Rows exist only where the
+# target applies on this machine (a config directory or the tool is there). DELIBERATE EXCEPTION to the rule that checklists start empty (Kevin,
+# 2026-11-17): every row starts TICKED, because each target is part of the theme the user just chose; Enter alone is today's full switch.
+# No checklist (everything applies as before) without a terminal, with --yes or THEMES_YES=1, or THEMES_SWITCH_CHOOSE=0; THEMES_TARGETS=id,id applies
+# only those rows without asking (the ids are printed in the `skipped:` lines). sw_on ID is the one test every target asks.
+sw_sel=0; sw_ticked=""; sw_ids=(); sw_labs=()
+sw_on() { [ "$sw_sel" != 1 ] && return 0; case " $sw_ticked " in *" $1 "*) return 0 ;; esac; return 1; }
+sw_row() { sw_ids+=("$1"); sw_labs+=("$2"); }
+app_title() { case "$1" in claude) echo "Claude Code" ;; helix) echo Helix ;; yazi) echo Yazi ;; zellij) echo zellij ;; kitty) echo kitty ;; bat) echo bat ;; eza) echo eza ;; *) echo Alacritty ;; esac; }
+sw_rows() {   # sw_rows SCHEME: the targets that apply here, labelled by what they change and where
+    local s="$1" a q qs=""
+    sw_ids=(); sw_labs=()
+    sw_row gtk "GTK theme (GTK 3 and 4 apps: gtk-theme setting, ~/.config/gtk-3.0/settings.ini)"
+    sw_row shell "GNOME Shell theme (User Themes extension)"
+    [ -f "$troot/$s/libadwaita/gtk.css" ] && sw_row libadwaita "libadwaita stylesheet ($cfg/gtk-4.0/gtk.css)"
+    command -v dconf >/dev/null 2>&1 && sw_row ptyxis "Ptyxis palette (palette key of your Ptyxis profiles)"
+    sw_row gsv "Text Editor and Builder style scheme (GtkSourceView)"
+    [ -d "$gh_dir" ] && sw_row ghostty "Ghostty theme ($gh_dir)"
+    for a in "${app_names[@]}"; do app_present "$a" && sw_row "app:$a" "$(app_title "$a") theme ($(app_dir "$a"))"; done
+    if kde_has "$s"; then
+        sw_row kde "KDE color scheme and kdeglobals ($kde_dir, $kde_globals)"
+        for q in qt5ct qt6ct; do [ -d "$cfg/$q" ] && qs="$qs${qs:+, }$cfg/$q/colors"; done
+        [ -z "$qs" ] || sw_row qtct "qt5ct/qt6ct palette ($qs)"
+    fi
+}
+sw_select() {   # sw_select SCHEME ACCENT: decides sw_sel and sw_ticked; exits 0 (nothing applied) on Esc or an empty result
+    local s="$1" ac="$2" i t bad="" ids=() unt=0
+    sw_sel=0; sw_ticked=""
+    if [ -n "${THEMES_TARGETS:-}" ]; then
+        sw_rows "$s"
+        for t in ${THEMES_TARGETS//,/ }; do
+            if printf '%s\n' "${sw_ids[@]}" | grep -qxF -- "$t"; then sw_ticked="$sw_ticked $t"; else bad="$bad $t"; fi
+        done
+        [ -z "$bad" ] || { echo "usage: THEMES_TARGETS has unknown or inapplicable target(s):$bad. Here: ${sw_ids[*]}" >&2; exit 2; }
+        sw_ticked="$sw_ticked "
+    elif [ "$tty_in" = 1 ] && [ -z "${THEMES_YES:-}" ] && [ -z "$yes_arg" ] && [ "${THEMES_SWITCH_CHOOSE:-1}" != 0 ]; then
+        sw_rows "$s"
+        pm_labels=("${sw_labs[@]}"); pm_on=(); for i in "${!sw_ids[@]}"; do pm_on[i]=1; done
+        pm_plain=1; cancel_hint="Nothing was applied; run just switch-theme $s again to choose."
+        pick_many_label "Apply $s to"
+        pm_plain=""; cancel_hint=""
+        if [ "${#pm_chosen[@]}" -eq 0 ]; then echo "Nothing selected: nothing was applied. Run just switch-theme $s again (Enter with every row ticked applies everything)."; exit 0; fi
+        for i in "${pm_chosen[@]}"; do sw_ticked="$sw_ticked ${sw_ids[i]}"; done
+        sw_ticked="$sw_ticked "
+    else return 0; fi
+    for i in "${!sw_ids[@]}"; do case " $sw_ticked " in *" ${sw_ids[i]} "*) ;; *) unt=$((unt+1)); echo "skipped: ${sw_labs[i]}. Apply it later: THEMES_TARGETS=${sw_ids[i]} just switch-theme $s${ac:+ $ac} --yes" ;; esac; done
+    if [ "$unt" -gt 0 ]; then sw_sel=1; else sw_sel=0; fi   # everything ticked: exactly today's full switch
+}
+
 if [ "$kind" = flatpak ]; then
     case "$action" in access) fp_access ;; remove) fp_remove ;; *) echo "usage: themectl.sh flatpak <access|remove>"; exit 2 ;; esac
     exit 0
@@ -1344,8 +1401,10 @@ case "$action" in
                 printf '%s\n' "${acc_names[@]}" | grep -qx "$accent_arg" || { echo "'$accent_arg' is not an accent of ${items[i]}. Available: ${acc_names[*]}" >&2; exit 1; }
                 accent_pick="$accent_arg"
             else choose_accent "${items[i]}"; fi
+            sw_select "${items[i]}" "$accent_pick"
             if [ -n "$accent_pick" ]; then state_set "$state/accents" "${items[i]}" "$accent_pick"; fi
-            copy_item "${items[i]}"; pty_cleanup; gsv_install "${items[i]}"; gh_install "${items[i]}"; app_install "${items[i]}"; kde_install "${items[i]}"
+            if sw_on gtk || sw_on shell; then copy_item "${items[i]}"; fi
+            pty_cleanup; sw_on gsv && gsv_install "${items[i]}"; sw_on ghostty && gh_install "${items[i]}"; app_install "${items[i]}"; kde_install "${items[i]}"
             [ -z "$accent_pick" ] || echo "Accent: $accent_pick."
         fi
         if [ "$kind" = icons ]; then
@@ -1364,14 +1423,14 @@ case "$action" in
                 esac
             done < <(folders_of "$sc")
             if [ -n "$gtk" ] && was_skipped "$gtk"; then echo "Not switching the GTK theme: $gtk was left alone (not installed by candy-for-gnome)."; gtk=""; fi
-            if [ -n "$gtk" ]; then
+            if [ -n "$gtk" ] && sw_on gtk; then
                 gsettings set org.gnome.desktop.interface gtk-theme "$gtk"; set_ini gtk-theme-name "$gtk"
                 echo "GTK theme is now $gtk."
             fi
             shell="${shell_d:-$shell_l}"     # a light-only scheme has no Dark Shell theme
             if ! gsettings get org.gnome.desktop.interface color-scheme 2>/dev/null | grep -qi dark; then shell="${shell_l:-$shell_d}"; fi
             if [ -n "$shell" ] && was_skipped "$shell"; then echo "Not switching the Shell theme: $shell was left alone (not installed by candy-for-gnome)."; shell=""; fi
-            if [ -n "$shell" ]; then
+            if [ -n "$shell" ] && sw_on shell; then
                 shell_done=0
                 if gsettings list-schemas 2>/dev/null | grep -qx org.gnome.shell.extensions.user-theme; then
                     gsettings set org.gnome.shell.extensions.user-theme name "$shell" && shell_done=1
@@ -1388,7 +1447,7 @@ case "$action" in
             fi
             # libadwaita apps ignore the GTK theme and read only the user stylesheet
             la="$troot/$sc/libadwaita/gtk.css"; target="$cfg/gtk-4.0/gtk.css"
-            if [ -f "$la" ]; then
+            if [ -f "$la" ] && sw_on libadwaita; then
                 ac=$(current_accent "$sc")
                 if [ -n "$ac" ] && [ "$ac" != "$acc_default" ]; then
                     accent_maps "$sc" "$ac"; tmpla=$(mktemp); trap 'rm -f "$tmpla"' EXIT
@@ -1412,7 +1471,7 @@ case "$action" in
                 else echo "$target differs from the scheme's libadwaita file; left alone (run in a terminal to replace it)."
                 fi
             fi
-            pty_cleanup; pty_switch "$sc"; gsv_switch "$sc"; gh_switch "$sc"; app_switch "$sc"; kde_switch "$sc"; fp_hint
+            pty_cleanup; sw_on ptyxis && pty_switch "$sc"; sw_on gsv && gsv_switch "$sc"; sw_on ghostty && gh_switch "$sc"; app_switch "$sc"; kde_switch "$sc"; fp_hint
             echo "Restart GTK apps to pick up the new theme."
         fi ;;
 
