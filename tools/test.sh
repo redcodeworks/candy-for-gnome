@@ -69,7 +69,7 @@ SH
 chmod +x "$T/bin/dconf"
 unset COLORTERM; export NO_COLOR=1   # no swatches in the pty tests that read the picker text (the swatch tests set their own environment)
 export CANDY_PLAIN=1   # the pty tests read the text of the messages: emojis stay off unless the emoji tests unset this themselves
-export THEMES_PICKER=builtin THEMES_SWITCH_AFTER_INSTALL=0   # tests choose the picker explicitly (a developer machine may have gum) and enable the switch menu after an install only in their own pty tests
+export THEMES_PICKER=builtin THEMES_SWITCH_AFTER_INSTALL=0 THEMES_SWITCH_CHOOSE=0   # tests choose the picker explicitly (a developer machine may have gum) and enable the switch menu after an install only in their own pty tests
 export PTYXIS_PALETTES="$T/ptyxis-palettes" GTKSOURCEVIEW_STYLES="$T/gsv-styles" FLATPAK_APPS="$T/var-app" KDE_COLOR_SCHEMES="$T/kde-schemes"
 export CANDY_FOR_GNOME_BREW_BIN="$T/nobrew" CANDY_FOR_GNOME_APPS_PATH="$T/noapps"   # no Homebrew bin dir and no PATH search (the container may ship bat): the per-app themes see only what a test points the knobs at
 export PATH="$T/bin:$PATH" XDG_CONFIG_HOME="$T/cfg" XDG_STATE_HOME="$T/state" CANDY_FOR_GNOME_CACHE="$T/cache"
@@ -946,6 +946,34 @@ THEMES_DEST=$KT just install-theme gruvbox-material </dev/null >/dev/null 2>&1; 
 out=$(THEMES_DEST=$KT just remove-theme gruvbox-material </dev/null 2>&1)
 [ ! -e "$KDE_COLOR_SCHEMES/candy-for-gnome-gruvbox-material-dark.colors" ] && [ ! -e "$q" ] && grep -qx 'font=Mine,10' "$KG" && ! grep -q 'Colors:Window\|ColorScheme' "$KG" && cmp -s "$KG.bak" "$T/kg.orig" && chk ok "kde: remove-theme deletes our files, strips our groups from kdeglobals (other lines and the backup stay)" || chk fail "kde remove ($(cat "$KG" 2>&1 | head -5))"
 rm -rf "$KT" "$KDE_COLOR_SCHEMES" "$XDG_CONFIG_HOME/qt6ct" "$KG" "$KG.bak"
+
+# ---- switch-theme: the checklist of targets (all rows ticked), THEMES_TARGETS, --yes ----------------------------------------------
+echo "=== switch targets checklist"
+if command -v script >/dev/null 2>&1; then
+    ST="$T/themes-sw"; KG="$XDG_CONFIG_HOME/kdeglobals"; rm -rf "$ST" "$KDE_COLOR_SCHEMES" "$KG" "$KG.bak" "$XDG_CONFIG_HOME/qt6ct" "$XDG_CONFIG_HOME/ghostty"; mkdir -p "$XDG_CONFIG_HOME/ghostty"
+    THEMES_DEST=$ST just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+    swp() { THEMES_SWITCH_CHOOSE=1 THEMES_DEST=$ST script -qec "tools/themectl.sh themes switch gruvbox-material $2" /dev/null < <(printf "$1") 2>&1 | tr '\r' '\n'; }   # swp KEYS ARGS: the screen text of a pty run
+    : > "$LOG"; out=$(swp '\n' blue)
+    printf '%s\n' "$out" | grep -q "Apply gruvbox-material to" && ! printf '%s\n' "$out" | grep -q "skipped:" && printf '%s\n' "$out" | grep -q "GTK theme is now" && [ "$(grep -c gtk-theme "$LOG")" -ge 1 ] && head -1 "$KG" | grep -qx '# candy-for-gnome: gruvbox-material' && [ -L "$XDG_CONFIG_HOME/ghostty/candy-for-gnome.conf" ] && chk ok "switch checklist: every row is ticked, Enter applies all of them (GTK, Shell, kdeglobals, Ghostty), no skipped line" || chk fail "all-ticked switch ($out)"
+    printf '%s\n' "$out" | grep -q "KDE color scheme and kdeglobals" && printf '%s\n' "$out" | grep -q "Ghostty theme (" && ! printf '%s\n' "$out" | grep -q "qt5ct/qt6ct palette" && chk ok "rows exist only where they apply (no qt5ct/qt6ct row without its directory; Ghostty and KDE rows present)" || chk fail "row set ($out)"
+    mkdir -p "$XDG_CONFIG_HOME/qt6ct"; out=$(swp 'q' blue)
+    printf '%s\n' "$out" | grep -q "qt5ct/qt6ct palette" && chk ok "the qt5ct/qt6ct row appears once a qt6ct config directory exists" || chk fail "qtct row missing"
+    rm -rf "$KG" "$XDG_CONFIG_HOME/qt6ct"; : > "$LOG"; out=$(swp ' \n' blue)
+    printf '%s\n' "$out" | grep -q "skipped: GTK theme" && printf '%s\n' "$out" | grep -qF "THEMES_TARGETS=gtk just switch-theme gruvbox-material blue --yes" && ! printf '%s\n' "$out" | grep -q "GTK theme is now" && [ "$(grep -c gtk-theme "$LOG")" = 0 ] && printf '%s\n' "$out" | grep -q "Shell theme is now" && [ -f "$KG" ] && chk ok "one row unticked (SPACE): that target is skipped with its apply-later command, all others are applied" || chk fail "one unticked ($out)"
+    rm -rf "$KG"; : > "$LOG"; out=$(swp 'q' blue)
+    printf '%s\n' "$out" | grep -q "Cancelled. Nothing was applied; run just switch-theme gruvbox-material again" && [ ! -e "$KG" ] && [ "$(grep -c theme "$LOG")" = 0 ] && ! printf '%s\n' "$out" | grep -q " is now " && chk ok "Esc/q: nothing applied, exit 0, how to run it again" || chk fail "cancel ($out)"
+    out=$(swp 'n\n' blue)
+    printf '%s\n' "$out" | grep -q "Nothing selected: nothing was applied" && [ ! -e "$KG" ] && chk ok "an empty result applies nothing" || chk fail "empty result ($out)"
+    # no checklist: a non-terminal run, --yes in a terminal, THEMES_TARGETS
+    : > "$LOG"; out=$(THEMES_SWITCH_CHOOSE=1 THEMES_DEST=$ST just switch-theme gruvbox-material blue </dev/null 2>&1)
+    ! printf '%s\n' "$out" | grep -q "Apply gruvbox-material to\|skipped:" && printf '%s\n' "$out" | grep -q "GTK theme is now" && [ -f "$KG" ] && chk ok "no terminal: no checklist, everything applied as before (THEMES_SWITCH_CHOOSE=1 does not force one)" || chk fail "non-terminal path ($out)"
+    rm -rf "$KG"; out=$(swp '' 'blue --yes')
+    ! printf '%s\n' "$out" | grep -q "Apply gruvbox-material to" && printf '%s\n' "$out" | grep -q "GTK theme is now" && [ -f "$KG" ] && chk ok "--yes in a terminal: no checklist, everything applied" || chk fail "--yes path ($out)"
+    rm -rf "$KG"; : > "$LOG"; out=$(THEMES_TARGETS=kde THEMES_DEST=$ST just switch-theme gruvbox-material blue </dev/null 2>&1)
+    [ -f "$KG" ] && ! printf '%s\n' "$out" | grep -q "GTK theme is now" && [ "$(grep -c theme "$LOG")" = 0 ] && printf '%s\n' "$out" | grep -q "skipped: GTK theme" && chk ok "THEMES_TARGETS=kde applies only the kde row, without a question" || chk fail "THEMES_TARGETS ($out)"
+    out=$(THEMES_TARGETS=nosuch THEMES_DEST=$ST just switch-theme gruvbox-material blue </dev/null 2>&1); printf '%s\n' "$out" | grep -q "unknown or inapplicable" && chk ok "an unknown THEMES_TARGETS id is refused" || chk fail "bad target id accepted"
+    THEMES_DEST=$ST just remove-theme gruvbox-material </dev/null >/dev/null 2>&1; rm -rf "$ST" "$KDE_COLOR_SCHEMES" "$KG" "$KG.bak" "$XDG_CONFIG_HOME/ghostty"
+else echo "  skip switch checklist tests (script not installed)"; fi
 
 # generated KDE and qtct files are committed and in sync for EVERY scheme (selftest checks their content per scheme in scope; the other generators
 # are covered by the regeneration above); the two generators are fast, so one pass over all schemes

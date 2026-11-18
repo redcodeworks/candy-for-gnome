@@ -18,13 +18,15 @@ States or other countries.
 ```
 git clone https://github.com/redcodeworks/candy-for-gnome && cd candy-for-gnome
 just install-theme          # checklist; or: just install-theme gruvbox-material
-just switch-theme            # apply it (GTK, Shell, libadwaita), asks for the accent; or: just switch-theme nordic cyan
+just switch-theme            # apply it (GTK, Shell, libadwaita and your tools), asks for the accent; or: just switch-theme nordic cyan
 just install-icon           # checklist; or: just install-icon Papirus-Dark
 just switch-icon Papirus-Dark
 ```
 
 Themes go to `~/.themes`, icons to `~/.local/share/icons`, as real copies. Checklists use `gum` when it is installed, otherwise a built-in picker: SPACE ticks,
 `/` filters, ENTER confirms, q cancels.
+
+In a terminal, `switch-theme` then lists what it will apply, with every row ticked: press Enter to apply everything, or untick what you do not want; skipped rows are named together with the command to apply them later. `--yes` (for example `just switch-theme nordic cyan --yes`) skips the list.
 
 `just switch-theme Adwaita` (the first entry of the list) goes back to the default GNOME look: Adwaita GTK and Shell theme, the stock terminal palette and editor style, and your terminal and command-line tools show their own defaults again. Your own config files are never edited; `just switch-theme <scheme>` brings the theme back. `just switch-icon Adwaita` does the same for icons.
 
