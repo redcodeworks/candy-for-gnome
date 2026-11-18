@@ -1022,6 +1022,11 @@ if command -v script >/dev/null 2>&1; then
     printf '%s\n' "$out" | grep -q "skipped: GTK theme" && printf '%s\n' "$out" | grep -qF "THEMES_TARGETS=gtk just switch-theme gruvbox-material blue --yes" && ! printf '%s\n' "$out" | grep -q "\[gtk\] updated gtk-theme with" && [ "$(grep -c gtk-theme "$LOG")" = 0 ] && printf '%s\n' "$out" | grep -q "\[shell\] updated user-theme with" && [ -f "$KG" ] && chk ok "one row unticked (SPACE): that target is skipped with its apply-later command, all others are applied" || chk fail "one unticked ($out)"
     rm -rf "$KG"; : > "$LOG"; out=$(swp 'q' blue)
     printf '%s\n' "$out" | grep -q "Cancelled. Nothing was applied; run just switch-theme gruvbox-material again" && [ ! -e "$KG" ] && [ "$(grep -c theme "$LOG")" = 0 ] && ! printf '%s\n' "$out" | grep -q " is now " && chk ok "Esc/q: nothing applied, exit 0, how to run it again" || chk fail "cancel ($out)"
+    # gum (stub) as the picker: every row is passed as preselected (--selected is comma separated, so no label may contain a comma) and Enter applies all
+    rm -rf "$KG"; rm -f "$STUB_LOG"; out=$(THEMES_PICKER=gum GUM_STUB_PICK='.' PATH="$SB:$PATH" THEMES_SWITCH_CHOOSE=1 THEMES_DEST=$ST script -qec "tools/themectl.sh themes switch gruvbox-material blue" /dev/null < <(printf '\n') 2>&1 | tr '\r' '\n')
+    gsel=$(grep -x -A1 -- '--selected' "$STUB_LOG" | tail -1); gok=1; gn=0
+    while IFS= read -r gl; do gn=$((gn+1)); case ",$gsel," in *",$gl,"*) ;; *) gok=0 ;; esac; done < <(grep -E '^(GTK theme|GNOME Shell|libadwaita|Ptyxis|Text Editor|Ghostty|KDE color|qt5ct)' "$STUB_LOG")
+    [ "$gok" = 1 ] && [ "$gn" -ge 5 ] && ! printf '%s\n' "$out" | grep -q 'skipped:' && printf '%s\n' "$out" | grep -q '\[kde\] updated kdeglobals' && chk ok "gum checklist: every row is preselected (no comma in a label) and Enter applies everything" || chk fail "gum switch checklist ($gsel / $out)"; rm -rf "$KG"
     out=$(swp 'n\n' blue)
     printf '%s\n' "$out" | grep -q "Nothing selected: nothing was applied" && [ ! -e "$KG" ] && chk ok "an empty result applies nothing" || chk fail "empty result ($out)"
     # no checklist: a non-terminal run, --yes in a terminal, THEMES_TARGETS
