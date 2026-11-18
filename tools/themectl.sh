@@ -121,7 +121,8 @@ candy-for-gnome: themes and icon sets (just <recipe>; behind the image: ujust gn
   install-icon [name]            install an icon set from its source repo (cloned into ~/.cache/candy-for-gnome) into ~/.local/share/icons
   update-icon, remove-icon [name], switch-icon [name]   as for themes
 
-Checklists and choosers use the built-in picker (arrows or j/k, SPACE, / filter, ENTER, q); THEMES_PICKER=gum asks for gum instead (opt-in). Other environment variables: see the header of tools/themectl.sh. FORCE=1 replaces folders candy-for-gnome did not install.
+Checklists use gum when it is installed, otherwise a built-in picker (arrows or j/k, SPACE, / filter, ENTER, q). THEMES_PICKER=gum|builtin
+chooses. Other environment variables: see the header of tools/themectl.sh. FORCE=1 replaces folders candy-for-gnome did not install.
 HELP
 exit 0 ;; esac
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -619,7 +620,7 @@ pick_handler() {
         builtin) echo builtin; return ;;
         gum) if command -v gum >/dev/null 2>&1; then echo gum; else echo "THEMES_PICKER=gum requested but gum is not on PATH; using the built-in picker." >&2; echo builtin; fi; return ;;
     esac
-    echo builtin   # candy's own picker is the default everywhere, also when gum is installed (Kevin, 2026-11-17); gum only with THEMES_PICKER=gum
+    if [ -t 0 ] && [ -t 2 ] && [ -r /dev/tty ] && command -v gum >/dev/null 2>&1; then echo gum; else echo builtin; fi
 }
 # gum_run MODE HEADER IDX... : sets chosen=(indexes) (many) or pick=index (one); an empty result (Esc, nothing ticked) leaves them empty
 gum_run() {
@@ -1031,12 +1032,12 @@ state_add_line() { mkdir -p "$(dirname "$1")"; grep -qxF -- "$2" "$1" 2>/dev/nul
 # only those rows without asking (the ids are printed in the `skipped:` lines). sw_on ID is the one test every target asks.
 sw_sel=0; sw_ticked=""; sw_ids=(); sw_labs=()
 sw_on() { [ "$sw_sel" != 1 ] && return 0; case " $sw_ticked " in *" $1 "*) return 0 ;; esac; return 1; }
-sw_row() { sw_ids+=("$1"); sw_labs+=("$2"); }
+sw_row() { sw_ids+=("$1"); sw_labs+=("${2//,/;}"); }   # no commas in a label: gum --selected takes a comma-separated list, so a label with one would not be preticked
 app_title() { case "$1" in claude) echo "Claude Code" ;; helix) echo Helix ;; yazi) echo Yazi ;; zellij) echo zellij ;; kitty) echo kitty ;; bat) echo bat ;; eza) echo eza ;; *) echo Alacritty ;; esac; }
 sw_rows() {   # sw_rows SCHEME: the targets that apply here, labelled by what they change and where
     local s="$1" a q qs=""
     sw_ids=(); sw_labs=()
-    sw_row gtk "GTK theme (GTK 3 and 4 apps: gtk-theme setting, ~/.config/gtk-3.0/settings.ini)"
+    sw_row gtk "GTK theme (GTK 3 and 4 apps; gtk-theme setting and ~/.config/gtk-3.0/settings.ini)"
     sw_row shell "GNOME Shell theme (User Themes extension)"
     [ -f "$troot/$s/libadwaita/gtk.css" ] && sw_row libadwaita "libadwaita stylesheet ($cfg/gtk-4.0/gtk.css)"
     command -v dconf >/dev/null 2>&1 && sw_row ptyxis "Ptyxis palette (palette key of your Ptyxis profiles)"
@@ -1044,8 +1045,8 @@ sw_rows() {   # sw_rows SCHEME: the targets that apply here, labelled by what th
     [ -d "$gh_dir" ] && sw_row ghostty "Ghostty theme ($gh_dir)"
     for a in "${app_names[@]}"; do app_present "$a" && sw_row "app:$a" "$(app_title "$a") theme ($(app_dir "$a"))"; done
     if kde_has "$s"; then
-        sw_row kde "KDE color scheme and kdeglobals ($kde_dir, $kde_globals)"
-        for q in qt5ct qt6ct; do kde_qt_used "$q" && qs="$qs${qs:+, }$cfg/$q/colors"; done
+        sw_row kde "KDE color scheme and kdeglobals ($kde_dir and $kde_globals)"
+        for q in qt5ct qt6ct; do kde_qt_used "$q" && qs="$qs${qs:+ and }$cfg/$q/colors"; done
         [ -z "$qs" ] || sw_row qtct "qt5ct/qt6ct palette ($qs)"
     fi
 }
