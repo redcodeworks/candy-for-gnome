@@ -975,9 +975,10 @@ if command -v script >/dev/null 2>&1; then
     printf 'y\n' | PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS script -qec "tools/themectl.sh icons remove Fake-Dark" /dev/null >/dev/null 2>&1
     [ "$(fpshow)" = "xdg-config/gtk-4.0:ro " ] && [ ! -e "$fpst" ] && grep -qx 'QT_QPA_PLATFORMTHEME=' "$FLATPAK_DB.env" && chk ok "answer y: exactly the recorded entries are removed (the pre-existing one stays, the variable is unset), record cleared" || chk fail "undo y case ($(fpshow))"
     # nox case: everything already set by hand: nothing missing, no prompt, nothing recorded
+    PATH="$FP_PATH" THEMES_DEST=$FS just install-theme fairy-floss </dev/null >/dev/null 2>&1
     fpall | tr ' ' '\n' | grep -v '^$' > "$FLATPAK_DB"; echo 'QT_QPA_PLATFORMTHEME=kde' > "$FLATPAK_DB.env"; rm -f "$fpst"
     out=$(PATH="$FP_PATH" THEMES_DEST=$FS just switch-theme fairy-floss </dev/null 2>&1)
-    ! printf '%s\n' "$out" | grep -q "Flatpak sandbox" && [ ! -e "$fpst" ] && chk ok "KDE entries and the variable already present (set by hand): seen as done, no prompt, nothing recorded" || chk fail "present entries not recognized ($out)"
+    printf '%s\n' "$out" | grep -q "GTK theme is now" && ! printf '%s\n' "$out" | grep -q "Flatpak sandbox" && [ ! -e "$fpst" ] && chk ok "KDE entries and the variable already present (set by hand): seen as done, no prompt, nothing recorded" || chk fail "present entries not recognized ($out)"
     # a different value (uppercase KDE forces Breeze Dark): reported, never changed
     echo 'QT_QPA_PLATFORMTHEME=KDE' > "$FLATPAK_DB.env"
     out=$(PATH="$FP_PATH" THEMES_DEST=$FS just switch-theme fairy-floss </dev/null 2>&1)
