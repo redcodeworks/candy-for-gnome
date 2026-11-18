@@ -121,8 +121,7 @@ candy-for-gnome: themes and icon sets (just <recipe>; behind the image: ujust gn
   install-icon [name]            install an icon set from its source repo (cloned into ~/.cache/candy-for-gnome) into ~/.local/share/icons
   update-icon, remove-icon [name], switch-icon [name]   as for themes
 
-Checklists use gum when it is installed, otherwise a built-in picker (arrows or j/k, SPACE, / filter, ENTER, q). THEMES_PICKER=gum|builtin
-chooses. Other environment variables: see the header of tools/themectl.sh. FORCE=1 replaces folders candy-for-gnome did not install.
+Checklists and choosers use the built-in picker (arrows or j/k, SPACE, / filter, ENTER, q); THEMES_PICKER=gum asks for gum instead (opt-in). Other environment variables: see the header of tools/themectl.sh. FORCE=1 replaces folders candy-for-gnome did not install.
 HELP
 exit 0 ;; esac
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -620,7 +619,7 @@ pick_handler() {
         builtin) echo builtin; return ;;
         gum) if command -v gum >/dev/null 2>&1; then echo gum; else echo "THEMES_PICKER=gum requested but gum is not on PATH; using the built-in picker." >&2; echo builtin; fi; return ;;
     esac
-    if [ -t 0 ] && [ -t 2 ] && [ -r /dev/tty ] && command -v gum >/dev/null 2>&1; then echo gum; else echo builtin; fi
+    echo builtin   # candy's own picker is the default everywhere, also when gum is installed (Kevin, 2026-11-17); gum only with THEMES_PICKER=gum
 }
 # gum_run MODE HEADER IDX... : sets chosen=(indexes) (many) or pick=index (one); an empty result (Esc, nothing ticked) leaves them empty
 gum_run() {
