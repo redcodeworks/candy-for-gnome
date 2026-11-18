@@ -11,7 +11,7 @@ View = the editor background (bg_deep), Window and Header = bg, Button = surface
 GTK ink, Tooltip = popover, foregrounds fg, inactive fg-dim, negative/neutral/positive = red/yellow/green and link/visited = blue/magenta of the editor
 palette. ColorScheme and Name are the same word (the file's base name, candy-for-gnome-<scheme>-<variant>) so a lookup by either finds the file.
 A dark-only scheme has only the dark file, a light-only one only the light file. The accent a user picked is applied by the installer (the default accent's
-r,g,b is replaced); PILOT: featured schemes only (appthemes.QT_SCOPE = 'all' turns it on for every scheme). Marker: the first line `# candy-for-gnome: <scheme>`.
+r,g,b is replaced); Marker: the first line `# candy-for-gnome: <scheme>`.
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -50,7 +50,6 @@ def colors(r, name, scheme, title, slot):
 def build(d):
     scheme, vs, S = A.model(d)
     out = {}
-    if not A.in_qt_scope(scheme): return scheme, out    # pilot: featured schemes only (A.QT_SCOPE)
     for s, v in vs.items():
         n = A.ident(scheme, s); out[n + '.colors'] = colors(A.qt_roles(S, v), n, scheme, v.title, s)
     return scheme, out

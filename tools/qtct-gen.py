@@ -27,7 +27,6 @@ def palette(r, off=False):
 def build(d):
     scheme, vs, S = A.model(d)
     out = {}
-    if not A.in_qt_scope(scheme): return scheme, out    # pilot: featured schemes only (A.QT_SCOPE)
     for s, v in vs.items():
         r = A.qt_roles(S, v)
         out[A.ident(scheme, s) + '.conf'] = '\n'.join(['# candy-for-gnome: %s' % scheme,

@@ -135,8 +135,8 @@ light/dark setting for the tools marked as following it at switch time.
 
 ## KDE and Qt apps
 
-As a trial, the starred (featured) themes also come as KDE color schemes and Qt palettes, so KDE and Kirigami
-apps (also the Flatpak ones) can follow the same colors. `install-theme` copies them to
+Every theme also comes as a KDE color scheme and a Qt palette, so KDE and Kirigami apps (also the Flatpak ones)
+can follow the same colors. `install-theme` copies them to
 `~/.local/share/color-schemes`, and to qt5ct or qt6ct only when that program has a config folder.
 `switch-theme` then writes the chosen light or dark variant, with your accent, into `~/.config/kdeglobals`. It
 creates that file when it is missing and updates it when candy-for-gnome wrote it. A `kdeglobals` written by
