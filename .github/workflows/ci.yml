@@ -50,7 +50,7 @@ jobs:
         env:
           TEST_ALL: ${{ (github.event_name == 'workflow_dispatch' && inputs.full) && '1' || '' }}
           TEST_SCOPE: featured
-        run: tools/test.sh
+        run: tools/test.sh ci
 
   # The required check "secrets": no credentials in the history.
   secrets:
