@@ -109,9 +109,9 @@ for f in tools/*.sh; do bash -n "$f" && chk ok "bash -n $f" || chk fail "bash -n
 if command -v shellcheck >/dev/null 2>&1; then shellcheck -S error tools/*.sh >/dev/null 2>&1 && chk ok "shellcheck (errors only)" || { chk fail "shellcheck"; shellcheck -S error tools/*.sh | head -20; }; else echo "  skip shellcheck (not installed)"; fi
 for f in tools/*.py; do python3 -I -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$f" && chk ok "parses $f" || chk fail "parses $f"; done
 just --dump >/dev/null 2>&1 && chk ok "justfile parses" || chk fail "justfile parses"
-want="install-icon install-theme list-icons list-themes remove-icon remove-theme switch-icon switch-theme update-icon update-theme"
+want="flatpak-access flatpak-access-remove install-icon install-theme list-icons list-themes remove-icon remove-theme switch-icon switch-theme update-icon update-theme"
 got=$(just --summary 2>/dev/null | tr ' ' '\n' | grep -v '^default$' | sort | tr '\n' ' ' | sed 's/ $//')
-[ "$got" = "$want" ] && chk ok "public recipes are exactly the ten" || chk fail "public recipes differ: $got"
+[ "$got" = "$want" ] && chk ok "public recipes are exactly the twelve (ten theme/icon ones and the two flatpak-access ones)" || chk fail "public recipes differ: $got"
 full=0; featured_only=0; nsample=10; named=()
 while [ $# -gt 0 ]; do case "$1" in --all) full=1 ;; --featured) featured_only=1 ;; --sample) shift; nsample=${1:?--sample needs a number} ;; *) named+=("$1") ;; esac; shift; done
 if [ "${TEST_ALL:-}" = 1 ]; then full=1; fi
@@ -259,7 +259,7 @@ grep -q "gtk-theme Dracula" "$LOG" && grep -qx -- '--limit' "$STUB_LOG" && ! gre
 out=$(printf 'q\n' | THEMES_PICKER=gum PATH="$nogum" THEMES_DEST=$GP tools/themectl.sh themes install 2>&1); rc=$?
 echo "$out" | grep -q "gum is not on PATH" && echo "$out" | grep -q "Cancelled" && [ $rc -eq 0 ] && chk ok "forced gum but none installed: warns and falls back (no terminal: the numbered list)" || chk fail "no gum rc=$rc: $out"
 rm -rf "$GP"
-n=$(just --list --unsorted | grep -c '^    [a-z].* # [A-Z]'); [ "$n" -eq 10 ] && just --list --unsorted | grep -q '\[themes\]' && just --list --unsorted | grep -q '\[icons\]' && chk ok "every public recipe has a group and a one-line comment (the ujust menu shows them)" || chk fail "recipe comments: $n of 10"
+n=$(just --list --unsorted | grep -c '^    [a-z].* # [A-Z]'); [ "$n" -eq 12 ] && just --list --unsorted | grep -q '\[themes\]' && just --list --unsorted | grep -q '\[icons\]' && just --list --unsorted | grep -q '\[flatpak\]' && chk ok "every public recipe has a group and a one-line comment (the ujust menu shows them)" || chk fail "recipe comments: $n of 12"
 tools/themectl.sh help | grep -q "install-theme \[name\]" && chk ok "themectl.sh help describes the recipes" || chk fail "themectl help"
 
 # ---- built-in picker: scrolling in a small terminal (pty with a terminal emulator) ----------------------------------------------------
@@ -947,41 +947,46 @@ FS="$T/themes-fp"; FI="$T/icons-fp"; fpst="$XDG_STATE_HOME/candy-for-gnome/flatp
 export FP_PATH="$T/fpbin:$PATH"
 fpshow() { sort "$FLATPAK_DB" | tr '\n' ' '; }
 fpall() { printf '%s\n' xdg-config/gtk-3.0:ro xdg-config/gtk-4.0:ro xdg-data/icons:ro '~/.themes:ro' xdg-config/kdeglobals:ro xdg-data/color-schemes:ro | sort | tr '\n' ' '; }   # every filesystem entry candy-for-gnome manages
-# without a terminal: nothing changes, the exact command is printed
+fpa() { PATH="$FP_PATH" THEMES_DEST=$FS ICONS_DEST=$FI "$@"; }
 : > "$FLATPAK_DB"; rm -f "$FLATPAK_DB.env"
-out=$(PATH="$FP_PATH" THEMES_DEST=$FS just install-theme fairy-floss </dev/null 2>&1; PATH="$FP_PATH" THEMES_DEST=$FS just switch-theme fairy-floss </dev/null 2>&1)
-[ ! -s "$FLATPAK_DB" ] && [ ! -e "$fpst" ] && printf '%s\n' "$out" | grep -qF "flatpak override --user --filesystem=xdg-config/gtk-3.0:ro --filesystem=xdg-config/gtk-4.0:ro --filesystem=xdg-data/icons:ro --filesystem=~/.themes:ro --filesystem=xdg-config/kdeglobals:ro --filesystem=xdg-data/color-schemes:ro --env=QT_QPA_PLATFORMTHEME=kde" && printf '%s\n' "$out" | grep -qF -- "--unset-env=QT_QPA_PLATFORMTHEME" && [ ! -e "$FLATPAK_DB.env" ] && chk ok "no terminal: sandbox untouched, exact command (KDE entries and the lowercase variable included) and its undo printed" || chk fail "no-terminal flatpak case"
+# the theme and icon commands never change or ask anything about Flatpak; switch-theme prints one hint line while entries are missing
+out=$( { fpa just install-theme fairy-floss </dev/null; fpa just update-theme </dev/null; fpa just install-icon Fake-Dark </dev/null; fpa just remove-icon Fake-Dark </dev/null; fpa just remove-theme fairy-floss </dev/null; } 2>&1)
+[ ! -s "$FLATPAK_DB" ] && [ ! -e "$FLATPAK_DB.env" ] && [ ! -e "$fpst" ] && ! printf '%s\n' "$out" | grep -qiE "override|sandbox|flatpak-access|Flatpak access" && chk ok "install, update and remove (themes and icons) print and change nothing about Flatpak" || chk fail "theme commands touched or mentioned Flatpak ($out)"
+fpa just install-theme fairy-floss </dev/null >/dev/null 2>&1
+out=$(fpa just switch-theme fairy-floss </dev/null 2>&1)
+[ ! -s "$FLATPAK_DB" ] && [ ! -e "$FLATPAK_DB.env" ] && [ ! -e "$fpst" ] && [ "$(printf '%s\n' "$out" | grep -c 'flatpak-access')" = 1 ] && printf '%s\n' "$out" | grep -qF "Flatpak apps cannot see your themes yet: run just flatpak-access" && chk ok "switch-theme without a terminal: exactly one hint line, the override untouched" || chk fail "switch hint ($out)"
+# flatpak-access without a terminal: nothing changes, the exact command and its undo are printed
+out=$(fpa just flatpak-access </dev/null 2>&1)
+[ ! -s "$FLATPAK_DB" ] && [ ! -e "$fpst" ] && printf '%s\n' "$out" | grep -qF "flatpak override --user --filesystem=xdg-config/gtk-3.0:ro --filesystem=xdg-config/gtk-4.0:ro --filesystem=xdg-data/icons:ro --filesystem=~/.themes:ro --filesystem=xdg-config/kdeglobals:ro --filesystem=xdg-data/color-schemes:ro --env=QT_QPA_PLATFORMTHEME=kde" && printf '%s\n' "$out" | grep -qF -- "--unset-env=QT_QPA_PLATFORMTHEME" && chk ok "flatpak-access, no terminal: override untouched, exact command (KDE entries and the lowercase variable) and its undo printed" || chk fail "flatpak-access no terminal ($out)"
 if command -v script >/dev/null 2>&1; then
-    # a pre-existing entry; answer n, then y
-    : > "$FLATPAK_DB"; echo "xdg-config/gtk-4.0:ro" > "$FLATPAK_DB"
-    printf 'n\n' | PATH="$FP_PATH" THEMES_DEST=$FS script -qec "tools/themectl.sh themes switch fairy-floss magenta" /dev/null > "$T/fp.out" 2>&1
-    [ "$(fpshow)" = "xdg-config/gtk-4.0:ro " ] && [ ! -e "$fpst" ] && grep -q "Allow read-only access to these folders for all Flatpaks" "$T/fp.out" && chk ok "answer n: nothing granted or recorded; the prompt text" || chk fail "flatpak n case ($(fpshow))"
-    printf 'y\n' | PATH="$FP_PATH" THEMES_DEST=$FS script -qec "tools/themectl.sh themes switch fairy-floss magenta" /dev/null >/dev/null 2>&1
-    [ "$(fpshow)" = "$(fpall)" ] && grep -qx 'QT_QPA_PLATFORMTHEME=kde' "$FLATPAK_DB.env" && chk ok "answer y: the missing entries and QT_QPA_PLATFORMTHEME=kde (lowercase) were granted" || chk fail "flatpak y grant ($(fpshow))"
-    [ "$(sort "$fpst" | tr '\n' ' ')" = "$(printf '%s\n' xdg-config/gtk-3.0:ro xdg-data/icons:ro '~/.themes:ro' xdg-config/kdeglobals:ro xdg-data/color-schemes:ro env:QT_QPA_PLATFORMTHEME | sort | tr '\n' ' ')" ] && chk ok "only the entries candy-for-gnome added are recorded (the pre-existing one is not)" || chk fail "record: $(cat "$fpst" 2>/dev/null | tr '\n' ' ')"
-    # a second switch finds nothing missing: no prompt
-    printf 'y\n' | PATH="$FP_PATH" THEMES_DEST=$FS script -qec "tools/themectl.sh themes switch fairy-floss magenta" /dev/null > "$T/fp.out" 2>&1
-    grep -q "Allow read-only access" "$T/fp.out" && chk fail "prompted although everything is granted" || chk ok "nothing missing: no prompt"
-    # undo: install an icon set too; removing the themes alone keeps the record, removing the last set asks
-    PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS just install-icon Fake-Dark </dev/null >/dev/null 2>&1
-    printf 'y\n' | PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS script -qec "tools/themectl.sh themes remove fairy-floss" /dev/null > "$T/fp.out" 2>&1
-    [ -s "$fpst" ] && ! grep -q "Remove the Flatpak read access" "$T/fp.out" && chk ok "removing the last theme while an icon set remains does not ask" || chk fail "undo asked too early"
-    printf 'n\n' | PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS script -qec "tools/themectl.sh icons remove Fake-Dark" /dev/null > "$T/fp.out" 2>&1
-    grep -q "Remove the Flatpak read access that candy-for-gnome added" "$T/fp.out" && [ -s "$fpst" ] && [ "$(fpshow)" = "$(fpall)" ] && chk ok "removing the last set asks; n keeps access and record" || chk fail "undo n case"
-    PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS just install-icon Fake-Dark </dev/null >/dev/null 2>&1
-    out=$(PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS just remove-icon Fake-Dark </dev/null 2>&1)
-    printf '%s\n' "$out" | grep -qF "flatpak override --user --nofilesystem=xdg-config/gtk-3.0 --nofilesystem=xdg-data/icons --nofilesystem=~/.themes" && printf '%s\n' "$out" | grep -qF -- "--unset-env=QT_QPA_PLATFORMTHEME" && ! printf '%s\n' "$out" | grep -q "nofilesystem=xdg-config/gtk-4.0" && [ -s "$fpst" ] && chk ok "no terminal: the undo commands for exactly the recorded entries are printed, nothing removed" || chk fail "undo no-terminal case"
-    PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS just install-icon Fake-Dark </dev/null >/dev/null 2>&1
-    printf 'y\n' | PATH="$FP_PATH" ICONS_DEST=$FI THEMES_DEST=$FS script -qec "tools/themectl.sh icons remove Fake-Dark" /dev/null >/dev/null 2>&1
-    [ "$(fpshow)" = "xdg-config/gtk-4.0:ro " ] && [ ! -e "$fpst" ] && grep -qx 'QT_QPA_PLATFORMTHEME=' "$FLATPAK_DB.env" && chk ok "answer y: exactly the recorded entries are removed (the pre-existing one stays, the variable is unset), record cleared" || chk fail "undo y case ($(fpshow))"
-    # nox case: everything already set by hand: nothing missing, no prompt, nothing recorded
-    PATH="$FP_PATH" THEMES_DEST=$FS just install-theme fairy-floss </dev/null >/dev/null 2>&1
+    # a pre-existing entry; answer n, then y; a pty switch never asks
+    echo "xdg-config/gtk-4.0:ro" > "$FLATPAK_DB"
+    printf 'y\n' | fpa script -qec "tools/themectl.sh themes switch fairy-floss magenta" /dev/null > "$T/fp.out" 2>&1
+    [ "$(fpshow)" = "xdg-config/gtk-4.0:ro " ] && ! grep -q "Apply this" "$T/fp.out" && chk ok "switch-theme in a terminal does not ask about Flatpak either" || chk fail "switch asked or changed Flatpak"
+    printf 'n\n' | fpa script -qec "tools/themectl.sh flatpak access" /dev/null > "$T/fp.out" 2>&1
+    [ "$(fpshow)" = "xdg-config/gtk-4.0:ro " ] && [ ! -e "$fpst" ] && grep -q "Apply this" "$T/fp.out" && chk ok "flatpak-access, answer n: nothing granted or recorded" || chk fail "flatpak n case ($(fpshow))"
+    printf 'y\n' | fpa script -qec "tools/themectl.sh flatpak access" /dev/null >/dev/null 2>&1
+    [ "$(fpshow)" = "$(fpall)" ] && grep -qx 'QT_QPA_PLATFORMTHEME=kde' "$FLATPAK_DB.env" && chk ok "flatpak-access, answer y: the missing entries and QT_QPA_PLATFORMTHEME=kde (lowercase) were granted" || chk fail "flatpak y grant ($(fpshow))"
+    [ "$(sort "$fpst" | tr '\n' ' ')" = "$(printf '%s\n' xdg-config/gtk-3.0:ro xdg-data/icons:ro '~/.themes:ro' xdg-config/kdeglobals:ro xdg-data/color-schemes:ro env:QT_QPA_PLATFORMTHEME | sort | tr '\n' ' ')" ] && chk ok "only what flatpak-access added is recorded (the pre-existing entry is not)" || chk fail "record: $(tr '\n' ' ' < "$fpst" 2>/dev/null)"
+    printf 'y\n' | fpa script -qec "tools/themectl.sh flatpak access" /dev/null > "$T/fp.out" 2>&1
+    grep -q "already has everything" "$T/fp.out" && ! grep -q "Apply this" "$T/fp.out" && chk ok "second run: nothing missing, no question" || chk fail "second run asked"
+    out=$(fpa just switch-theme fairy-floss </dev/null 2>&1)
+    ! printf '%s\n' "$out" | grep -q "flatpak-access" && chk ok "once everything is granted switch-theme prints no hint" || chk fail "hint although granted"
+    # undo: no terminal prints the commands, n keeps, y removes exactly the recorded entries
+    out=$(fpa just flatpak-access-remove </dev/null 2>&1)
+    printf '%s\n' "$out" | grep -qF "flatpak override --user --nofilesystem=xdg-config/gtk-3.0 --nofilesystem=xdg-data/icons --nofilesystem=~/.themes" && printf '%s\n' "$out" | grep -qF -- "--unset-env=QT_QPA_PLATFORMTHEME" && ! printf '%s\n' "$out" | grep -q "nofilesystem=xdg-config/gtk-4.0" && printf '%s\n' "$out" | grep -q "negations" && [ "$(fpshow)" = "$(fpall)" ] && [ -s "$fpst" ] && chk ok "flatpak-access-remove, no terminal: the undo for exactly the recorded entries (and what flatpak leaves behind) printed, nothing removed" || chk fail "undo no-terminal case ($out)"
+    printf 'n\n' | fpa script -qec "tools/themectl.sh flatpak remove" /dev/null >/dev/null 2>&1
+    [ "$(fpshow)" = "$(fpall)" ] && [ -s "$fpst" ] && chk ok "flatpak-access-remove, answer n: access and record stay" || chk fail "undo n case"
+    printf 'y\n' | fpa script -qec "tools/themectl.sh flatpak remove" /dev/null >/dev/null 2>&1
+    [ "$(fpshow)" = "xdg-config/gtk-4.0:ro " ] && [ ! -e "$fpst" ] && grep -qx 'QT_QPA_PLATFORMTHEME=' "$FLATPAK_DB.env" && chk ok "flatpak-access-remove, answer y: exactly the recorded entries are removed (the pre-existing one stays, the variable is unset), record cleared" || chk fail "undo y case ($(fpshow))"
+    out=$(fpa just flatpak-access-remove </dev/null 2>&1); printf '%s\n' "$out" | grep -q "Nothing recorded" && chk ok "flatpak-access-remove with no record says so" || chk fail "remove without record ($out)"
+    # nox case: everything already set by hand: nothing missing, nothing recorded or changed
     fpall | tr ' ' '\n' | grep -v '^$' > "$FLATPAK_DB"; echo 'QT_QPA_PLATFORMTHEME=kde' > "$FLATPAK_DB.env"; rm -f "$fpst"
-    out=$(PATH="$FP_PATH" THEMES_DEST=$FS just switch-theme fairy-floss </dev/null 2>&1)
-    printf '%s\n' "$out" | grep -q "GTK theme is now" && ! printf '%s\n' "$out" | grep -q "Flatpak sandbox" && [ ! -e "$fpst" ] && chk ok "KDE entries and the variable already present (set by hand): seen as done, no prompt, nothing recorded" || chk fail "present entries not recognized ($out)"
+    out=$(fpa just flatpak-access </dev/null 2>&1)
+    printf '%s\n' "$out" | grep -q "already has everything" && [ ! -e "$fpst" ] && [ "$(fpshow)" = "$(fpall)" ] && chk ok "entries and the variable already present (set by hand): seen as done, nothing recorded or changed" || chk fail "present entries not recognized ($out)"
     # a different value (uppercase KDE forces Breeze Dark): reported, never changed
     echo 'QT_QPA_PLATFORMTHEME=KDE' > "$FLATPAK_DB.env"
-    out=$(PATH="$FP_PATH" THEMES_DEST=$FS just switch-theme fairy-floss </dev/null 2>&1)
+    out=$(fpa just flatpak-access </dev/null 2>&1)
     printf '%s\n' "$out" | grep -q "sets QT_QPA_PLATFORMTHEME=KDE" && [ "$(cat "$FLATPAK_DB.env")" = "QT_QPA_PLATFORMTHEME=KDE" ] && chk ok "another value of the variable is reported and left alone" || chk fail "other variable value ($out)"
 else echo "  skip flatpak prompt tests (script not installed)"; fi
 rm -rf "$FS" "$FI" "$fpst"; : > "$FLATPAK_DB"; rm -f "$FLATPAK_DB.env"

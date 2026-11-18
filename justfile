@@ -60,6 +60,18 @@ remove-icon name="":
 switch-icon name="":
     @tools/themectl.sh icons switch "{{name}}"
 
+# Flatpak: the global user override is changed only by these two recipes, never by the theme or icon commands
+
+# Let Flatpak apps see themes, icons and KDE colors (asks once)
+[group('flatpak')]
+flatpak-access:
+    @tools/themectl.sh flatpak access
+
+# Undo exactly what flatpak-access added
+[group('flatpak')]
+flatpak-access-remove:
+    @tools/themectl.sh flatpak remove
+
 # Development: regenerate one scheme (or all) from its scheme.toml: palette tables, GTK3, GTK4 and GNOME Shell CSS from the toolkits' own stock stylesheets, the libadwaita file, the accent maps and the GtkSourceView style schemes and the Ghostty themes (needs python3-gobject, GTK 3, GTK 4 and gnome-shell)
 [private]
 generate theme="all":
