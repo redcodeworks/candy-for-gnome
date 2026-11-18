@@ -143,15 +143,17 @@ creates that file when it is missing and updates it when candy-for-gnome wrote i
 something else (for example Noctalia's template) is left alone unless you answer `y` when asked; the old file is
 kept as `kdeglobals.bak` and the command to put it back is printed. Your other settings in the file stay. The
 qt5ct and qt6ct config files are never edited; `switch-theme` tells you which palette to pick. `remove-theme` and
-`switch-theme Adwaita` take our colors out again. Restart KDE and Qt apps after switching.
+`switch-theme Adwaita` take our colors out again. Restart KDE and Qt apps after switching. KDE apps in a Flatpak also
+need `just flatpak-access` (see below).
 
 ## Flatpak apps
 
-Flatpak apps cannot read `~/.themes`, the icons or `~/.config/gtk-3.0|4.0` unless allowed. After
-`switch-theme` you are asked once (default no) whether to grant read-only access for what is missing, and
-the grant is undone when you remove the last theme and icon set. Nothing is widened silently. For KDE apps the
-same question also covers read access to `kdeglobals` and the color schemes, and the setting
-`QT_QPA_PLATFORMTHEME=kde` (in lowercase). The exact commands that undo it are printed.
+Flatpak apps cannot read `~/.themes`, the icons or `~/.config/gtk-3.0|4.0` unless allowed, and KDE apps in a
+Flatpak also need `kdeglobals`, the color schemes and the setting `QT_QPA_PLATFORMTHEME=kde` (in lowercase).
+The theme commands never change any of this; they only print a hint while something is missing. Run
+`just flatpak-access` once when you want it: it shows what is missing, asks (default no), applies only the
+missing entries, and prints the exact commands that undo it. Entries you set yourself count as done. To take back
+exactly what it added, run `just flatpak-access-remove`.
 
 ## Contributing
 
