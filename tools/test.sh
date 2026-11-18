@@ -104,6 +104,7 @@ echo "=== lint and hygiene"
 for f in tools/*.sh; do bash -n "$f" && chk ok "bash -n $f" || chk fail "bash -n $f"; done
 if command -v shellcheck >/dev/null 2>&1; then shellcheck -S error tools/*.sh >/dev/null 2>&1 && chk ok "shellcheck (errors only)" || { chk fail "shellcheck"; shellcheck -S error tools/*.sh | head -20; }; else echo "  skip shellcheck (not installed)"; fi
 for f in tools/*.py; do python3 -I -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$f" && chk ok "parses $f" || chk fail "parses $f"; done
+grep -qx git tools/test-packages.txt && grep -q "test-packages.txt" tools/test.Containerfile && chk ok "the test image installs test-packages.txt, which lists git (checkout needs it in the CI container)" || chk fail "test image and package list disagree"
 just --dump >/dev/null 2>&1 && chk ok "justfile parses" || chk fail "justfile parses"
 want="flatpak-access flatpak-access-remove install-icon install-theme list-icons list-themes remove-icon remove-theme switch-icon switch-theme update-icon update-theme"
 got=$(just --summary 2>/dev/null | tr ' ' '\n' | grep -v '^default$' | sort | tr '\n' ' ' | sed 's/ $//')

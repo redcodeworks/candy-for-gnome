@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: MIT
+# The prebuilt image the `test` job of ci.yml runs in: tools/test.Containerfile (the same file `tools/test.sh` builds for the local container),
+# pushed as ghcr.io/<owner>/candy-for-gnome-test with the tags `latest` and <date>-<short sha>. It is rebuilt when the Containerfile or the package
+# list changes (push to testing), on demand (workflow_dispatch) and weekly (Fedora drift is wanted: the tests should meet current packages).
+# GitHub dispatches `schedule` and `workflow_dispatch` runs only from the default branch, so the weekly rebuild and the manual button work once this
+# file is on main; until then the push trigger on testing builds the first image.
+name: test-image
+
+on:
+  push:
+    branches: [testing]
+    paths:
+      - tools/test.Containerfile
+      - tools/test-packages.txt
+      - .github/workflows/test-image.yml
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-image
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write   # this job only: push the image with the workflow's own GITHUB_TOKEN (no other secret)
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Build the image from tools/test.Containerfile
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/candy-for-gnome-test"
+          tag="$(date -u +%Y%m%d)-${GITHUB_SHA::7}"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"; echo "TAG=$tag" >> "$GITHUB_ENV"
+          # the base image and the dnf mirrors are network calls: three attempts
+          for n in 1 2 3; do
+            podman build --pull=newer -f tools/test.Containerfile -t "$image:$tag" -t "$image:latest" tools && break
+            [ "$n" -lt 3 ] || { echo "image build failed after 3 attempts"; exit 1; }
+            echo "build attempt $n failed, retrying in 30 s"; sleep 30
+          done
+      - name: Push latest and the dated tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          podman login ghcr.io -u "$GITHUB_ACTOR" --password-stdin <<< "$GH_TOKEN"
+          for t in "$TAG" latest; do
+            for n in 1 2 3; do
+              podman push "$IMAGE:$t" && break
+              [ "$n" -lt 3 ] || { echo "push of $IMAGE:$t failed after 3 attempts"; exit 1; }
+              echo "push attempt $n failed, retrying in 15 s"; sleep 15
+            done
+          done
