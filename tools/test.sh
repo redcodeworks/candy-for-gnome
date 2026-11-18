@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# Full test of the COMMITTED state of this repo (a fresh clone of HEAD, temp directories only, a stand-in gsettings,
-# a local fake icon repo): lint, hygiene, regeneration, per-scheme selftest, install/switch/update/remove for every
-# scheme and accent, and the icon recipes. Exits non-zero on any failure.
-#   tools/test.sh [--rebuild] [--all] [--featured] [--sample N] [scheme ...]
-#     Every PER-SCHEME check (hygiene, regeneration, selftest, the GtkSource style check, ptyxis-compare, the install/switch/update/remove loop with
-#     every accent) runs for ONE scope; the checks that are not per scheme (lint, scenario tests on fixed samples or fixtures, the repo-wide
-#     inventory and asset-layout checks) always run. The scope:
-#       --featured (or TEST_SCOPE=featured; what CI passes): the featured schemes only (FEATURED_THEMES in tools/themectl.sh, the starred
-#         ones). Nothing else is checked per scheme, so a stale generated file or a broken accent of any other scheme is NOT caught.
-#       --all (or TEST_ALL=1; CI: the manual dispatch with full=true only): every scheme.
-#       named schemes: those only.
-#       none of these (a hand run): hygiene, ptyxis-compare and the style check for every scheme; regeneration, selftest and the loop for the
-#         featured schemes, the schemes that differ from origin/main (TEST_BASE overrides; capped at 15) and N more (--sample N, default 10)
-#         chosen from the commit hash.
+# Test of the COMMITTED state of this repo (a fresh clone of HEAD, temp directories only, a stand-in gsettings, a local fake icon repo).
+#   tools/test.sh [ci|full] [--rebuild] [--all] [scheme ...]      (just test-ci, just test-full)
+#     Two tiers in this one script. `ci` (the default, what GitHub runs): lint, regeneration, selftest and hygiene of the schemes in scope, the
+#     ptyxis declarations and the inventory, and the few end-to-end scenarios of the "ci scenarios" block (an install/switch/update/remove round trip,
+#     the kdeglobals rules, one failing target, the checklist, the Flatpak recipe, the KDE/qtct files of every scheme in sync).
+#     `full` (the exhaustive suite an agent runs locally before pushing; CI never runs it): the ci tier plus the install/switch/update/remove loop
+#     with every accent for each scheme in scope and every other section below the line `END OF THE CI TIER`. Exits non-zero on any failure.
+#     SCOPE (both tiers): the featured schemes (FEATURED_THEMES in tools/themectl.sh, the starred ones); named schemes replace that list;
+#     TEST_SCHEMES=all, --all or TEST_ALL=1 (CI: the manual dispatch with full=true only) widen it to every scheme on purpose. Checks that are
+#     not per scheme (lint, scenarios on fixed schemes or fixtures, the inventory, the KDE/qtct sync of every scheme) always run.
 #     --rebuild rebuilds the test image.
 # Inside the container it needs git, just, python3 + python3-gobject, GTK 3, GTK 4, gnome-shell (St typelib) and a display
 # (tools/test-packages.txt lists them; it re-executes itself under xvfb-run when there is no display).
@@ -112,32 +108,25 @@ just --dump >/dev/null 2>&1 && chk ok "justfile parses" || chk fail "justfile pa
 want="flatpak-access flatpak-access-remove install-icon install-theme list-icons list-themes remove-icon remove-theme switch-icon switch-theme update-icon update-theme"
 got=$(just --summary 2>/dev/null | tr ' ' '\n' | grep -v '^default$' | sort | tr '\n' ' ' | sed 's/ $//')
 [ "$got" = "$want" ] && chk ok "public recipes are exactly the twelve (ten theme/icon ones and the two flatpak-access ones)" || chk fail "public recipes differ: $got"
-full=0; featured_only=0; nsample=10; named=()
-while [ $# -gt 0 ]; do case "$1" in --all) full=1 ;; --featured) featured_only=1 ;; --sample) shift; nsample=${1:?--sample needs a number} ;; *) named+=("$1") ;; esac; shift; done
-if [ "${TEST_ALL:-}" = 1 ]; then full=1; fi
-if [ "${TEST_SCOPE:-}" = featured ]; then featured_only=1; fi
-# Coverage (CLAUDE.md, "CI time and coverage"): see the header. `schemes` is the scope of hygiene, ptyxis-compare and the style check, `cheap_schemes` of
-# regeneration and selftest, `loop_schemes` of the install/switch/update/remove loop; `all_schemes` only feeds the fixtures and the repo-wide checks.
+# Scope (one sentence): the featured schemes (FEATURED_THEMES in tools/themectl.sh, the starred ones), unless schemes are named or TEST_SCHEMES=all /
+# --all / TEST_ALL=1 widens it on purpose (CI does that only for the manual full dispatch). The same scope serves both tiers: `schemes` is the scope of
+# hygiene, ptyxis-compare and the style check, `cheap_schemes` of regeneration and selftest, `loop_schemes` of the full tier's install/switch/update/remove
+# loop. (The old "changed schemes plus a rotating sample" hand-run scope is gone: generation covers every scheme, the tests cover the starred ones.)
+full=0; named=()
+tier=ci
+while [ $# -gt 0 ]; do case "$1" in ci|full) tier=$1 ;; --all) full=1 ;; --featured) ;; *) named+=("$1") ;; esac; shift; done
+if [ "${TEST_ALL:-}" = 1 ] || [ "${TEST_SCHEMES:-}" = all ]; then full=1; fi
 all_schemes=$(ls -d themes/*/palette.toml | cut -d/ -f2)
 feat=$(sed -n 's/^FEATURED_THEMES="${FEATURED_THEMES-\(.*\)}"$/\1/p' tools/themectl.sh)
-if [ ${#named[@]} -gt 0 ]; then schemes="${named[*]}"; loop_schemes="$schemes"; cheap_schemes="$schemes"
-elif [ "$full" -eq 1 ]; then schemes="$all_schemes"; loop_schemes="$schemes"; cheap_schemes="$schemes"; echo "coverage: every scheme (--all)"
-elif [ "$featured_only" -eq 1 ]; then
-    schemes=$(for x in $feat; do [ -f "themes/$x/palette.toml" ] && echo "$x"; done); loop_schemes="$schemes"; cheap_schemes="$schemes"
-    echo "coverage: the featured schemes only; every scheme with --all or the manual full CI run"
+if [ ${#named[@]} -gt 0 ]; then schemes="${named[*]}"
+elif [ "$full" -eq 1 ]; then schemes="$all_schemes"; echo "coverage: every scheme (--all, TEST_SCHEMES=all or the manual full CI run)"
 else
-    schemes="$all_schemes"
-    changed=$(git -C "$root" diff --name-only "${TEST_BASE:-origin/main}" HEAD 2>/dev/null | grep '^themes/' | cut -d/ -f2 | sort -u | while read -r x; do [ -f "themes/$x/palette.toml" ] && echo "$x"; done)
-    sha=$(git rev-parse HEAD)
-    pick() { for x in $schemes; do case " $feat " in *" $x "*) continue ;; esac; printf '%s %s\n' "$(printf '%s%s%s' "$1" "$sha" "$x" | sha1sum | cut -c1-12)" "$x"; done | sort | head -n "$2" | awk '{print $2}'; }
-    nchg=$(echo $changed | wc -w)
-    if [ "$nchg" -gt 15 ]; then changed=$(for x in $changed; do printf '%s %s\n' "$(printf 'chg%s%s' "$sha" "$x" | sha1sum | cut -c1-12)" "$x"; done | sort | head -n 15 | awk '{print $2}'); capped=" (a sample of 15 of $nchg changed schemes)"; else capped=""; fi
-    cheap_schemes=$(for x in $feat $changed $(pick loop "$nsample"); do [ -f "themes/$x/palette.toml" ] && echo "$x"; done | awk '!seen[$0]++')
-    loop_schemes="$cheap_schemes"
-    echo "coverage: featured + changed$capped + rotating slice of $nsample; every scheme with --all or the manual full CI run"
+    schemes=$(for x in $feat; do [ -f "themes/$x/palette.toml" ] && echo "$x"; done)
+    echo "coverage: the featured schemes only; every scheme with TEST_SCHEMES=all, --all or the manual full CI run"
 fi
+loop_schemes="$schemes"; cheap_schemes="$schemes"
 export SCHEMES="$schemes"
-echo "regeneration, selftest and the install/switch/update/remove loop run for $(echo $loop_schemes | wc -w) of $(echo $all_schemes | wc -w) schemes: $(echo $loop_schemes)"
+echo "regeneration and selftest run for $(echo $loop_schemes | wc -w) of $(echo $all_schemes | wc -w) schemes: $(echo $loop_schemes)$([ "$tier" = full ] && echo "; the install/switch/update/remove loop runs for them too")"
 for s in $schemes; do
     for d in themes/$s/gtk/*/; do [ -f "$d/LICENSE" ] && chk ok "$d has a LICENSE" || chk fail "$d has no LICENSE"; done
     while IFS= read -r f; do head -12 "$f" | grep -q "Licen[cs]e" && chk ok "licence line in $f" || chk fail "no licence line in header of $f"; done < <(find "themes/$s/gtk" -name '*.css' -not -path '*/assets/*' -not -name 'pad-osd.css')
@@ -163,28 +152,6 @@ for s in $cheap_schemes; do
     cat "$T/cheap-$s.out" | grep -v '^COUNT'
     while read -r _ p f; do pass=$((pass+p)); fail=$((fail+f)); done < <(grep '^COUNT' "$T/cheap-$s.out")
 done
-LT=$(mktemp -d -p /dev/shm 2>/dev/null) || LT="$T"   # installed copies of the loop live in memory when possible (hundreds of small files per install)
-for s in $loop_schemes; do
-    echo "=== loop $s"
-    D="$LT/themes-$s"; THEMES_DEST=$D just install-theme "$s" >/dev/null 2>&1
-    n=$(ls "$D" 2>/dev/null | wc -l); [ "$n" -ge 1 ] && chk ok "install-theme: $n folders" || chk fail "install-theme produced nothing"
-    kdok=1; kdn=0; for f in themes/$s/kde/*; do kdn=$((kdn+1)); [ -f "$KDE_COLOR_SCHEMES/${f##*/}" ] || kdok=0; done
-    [ "$kdok" = 1 ] && [ "$kdn" -ge 1 ] && chk ok "install-theme: the KDE color scheme file(s) of $s are installed" || chk fail "KDE color schemes of $s missing after install-theme"
-    gt=$(awk -F'"' '/^gtk_name/ {print $2}' "themes/$s/palette.toml")
-    [ -f "$D/$gt/gtk-3.0/assets/check-symbolic.svg" ] && [ -f "$D/$gt/gtk-4.0/assets/check-symbolic.svg" ] && [ ! -L "$D/$gt/gtk-3.0/assets" ] && chk ok "installed theme is complete: real assets directories in gtk-3.0 and gtk-4.0" || chk fail "installed $gt lacks its assets"
-    for a in $(grep -v '^#' "themes/$s/accents/list" | awk 'NF {print $1}'); do
-        : > "$LOG"; THEMES_DEST=$D just switch-theme "$s" "$a" >/dev/null 2>&1; rc=$?
-        [ $rc -eq 0 ] && [ "$(grep -c gtk-theme "$LOG")" -ge 1 ] && chk ok "switch-theme $s $a" || chk fail "switch-theme $s $a (rc=$rc)"
-    done
-    last=$(grep -v '^#' "themes/$s/accents/list" | awk 'NF {print $1}' | tail -1); st=$(grep "^$s=" "$T/state/candy-for-gnome/accents" 2>/dev/null | cut -d= -f2)
-    [ "$st" = "$last" ] && chk ok "accent remembered ($st)" || chk fail "accent state '$st' != '$last'"
-    h1=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum); THEMES_DEST=$D just update-theme >/dev/null 2>&1; h2=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum)   # the marker carries updated_at, which moves on purpose
-    [ "$h1" = "$h2" ] && chk ok "update-theme keeps the remembered accent" || chk fail "update-theme changed the installed tree"
-    THEMES_DEST=$D just remove-theme "$s" >/dev/null 2>&1; [ -z "$(ls -A "$D" 2>/dev/null)" ] && chk ok "remove-theme emptied the set" || chk fail "remove-theme left $(ls "$D" | tr '\n' ' ')"
-    kdok=1; for f in themes/$s/kde/*; do [ -e "$KDE_COLOR_SCHEMES/${f##*/}" ] && kdok=0; done
-    [ "$kdok" = 1 ] && chk ok "remove-theme removed the KDE color scheme file(s)" || chk fail "KDE color schemes of $s left after remove-theme"
-done
-[ "$LT" != "$T" ] && rm -rf "${LT:?}"
 
 # ---- shared assets: the repo stores GTK's stock assets once (assets/gtk-3.0, assets/gtk-4.0); installs copy them into each theme ---------
 echo "=== shared assets"
@@ -207,6 +174,78 @@ print('; '.join(bad))
 PY
 )
 [ -z "$inv" ] && chk ok "tools/ptyxis-schemes.tsv matches the scheme folders" || chk fail "inventory: $inv"
+
+# ---- ci scenarios: the few end-to-end checks that matter (CI runs everything above and this block; `full` runs the exhaustive rest) ------
+echo "=== ci scenarios"
+CD="$T/ci-themes"; CKG="$XDG_CONFIG_HOME/kdeglobals"; rm -rf "$CD" "$KDE_COLOR_SCHEMES" "$CKG" "$CKG.bak" "$XDG_CONFIG_HOME/qt6ct" "$XDG_CONFIG_HOME/ghostty"
+ksel() { sed -n '/^\[Colors:Selection\]/,/^$/p' "$1" | sed -n 's/^BackgroundNormal=//p'; }
+# install, switch, update, remove round trip on a scheme with both variants (gruvbox-material)
+THEMES_DEST=$CD just install-theme gruvbox-material </dev/null >/dev/null 2>&1
+[ -f "$CD/Gruvbox-Material/gtk-4.0/gtk.css" ] && [ -f "$KDE_COLOR_SCHEMES/candy-for-gnome-gruvbox-material-dark.colors" ] && [ -f "$KDE_COLOR_SCHEMES/candy-for-gnome-gruvbox-material-light.colors" ] && chk ok "install-theme: the GTK and Shell folders and both KDE color schemes are installed" || chk fail "ci install"
+: > "$LOG"; out=$(THEMES_DEST=$CD just switch-theme gruvbox-material blue </dev/null 2>&1)
+printf '%s\n' "$out" | grep -qx '\[gtk\] updated gtk-theme with gruvbox-material' && printf '%s\n' "$out" | grep -qx '\[kde\] updated kdeglobals with gruvbox-material' && [ "$(grep -c gtk-theme "$LOG")" -ge 1 ] && head -1 "$CKG" | grep -qx '# candy-for-gnome: gruvbox-material' && ! printf '%s\n' "$out" | grep -q 'Restart\|Next: in\|is now' && chk ok "switch-theme: one success line per app, kdeglobals created with our marker" || chk fail "ci switch ($out)"
+sed -i 's/^\[General\]/[General]\nfont=Mine,10/' "$CKG"; red_before=$(ksel "$CKG"); out=$(THEMES_DEST=$CD just switch-theme gruvbox-material red </dev/null 2>&1)
+[ "$(ksel "$CKG")" != "$red_before" ] && [ "$(ksel "$CKG")" = "$(ksel "$KDE_COLOR_SCHEMES/candy-for-gnome-gruvbox-material-dark.colors")" ] && grep -qx 'font=Mine,10' "$CKG" && [ "$(grep -c '^\[Colors:Window\]' "$CKG")" = 1 ] && chk ok "kdeglobals: our file is merged (the chosen accent in, the user's own line kept, no duplicate group)" || chk fail "ci kdeglobals merge"
+cp "$CKG" "$T/ci-ours"; printf '[General]\nColorScheme=noctalia\n' > "$CKG"; cp "$CKG" "$T/ci-foreign"; out=$(THEMES_DEST=$CD just switch-theme gruvbox-material blue </dev/null 2>&1)
+cmp -s "$CKG" "$T/ci-foreign" && printf '%s\n' "$out" | grep -q "Left .*kdeglobals alone" && chk ok "kdeglobals: a file candy did not write is left alone, with the way to hand it over" || chk fail "ci foreign kdeglobals"
+cp "$T/ci-ours" "$CKG"
+h1=$(find "$CD" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum); THEMES_DEST=$CD just update-theme >/dev/null 2>&1; h2=$(find "$CD" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum)
+[ "$h1" = "$h2" ] && chk ok "update-theme refreshes the installed theme without changing it" || chk fail "ci update changed the tree"
+THEMES_DEST=$CD just remove-theme gruvbox-material </dev/null >/dev/null 2>&1
+[ -z "$(ls -A "$CD" 2>/dev/null)" ] && [ ! -e "$KDE_COLOR_SCHEMES/candy-for-gnome-gruvbox-material-dark.colors" ] && grep -qx 'font=Mine,10' "$CKG" && ! grep -q 'Colors:Window\|ColorScheme' "$CKG" && chk ok "remove-theme: folders and color schemes gone, our parts stripped from kdeglobals, the user's line stays" || chk fail "ci remove"
+# a dark-only scheme (nordic) switches to its dark color scheme
+rm -rf "$CKG"; THEMES_DEST=$CD just install-theme nordic </dev/null >/dev/null 2>&1; THEMES_DEST=$CD just switch-theme nordic cyan </dev/null >/dev/null 2>&1
+grep -qx 'ColorScheme=candy-for-gnome-nordic-dark' "$CKG" && chk ok "a dark-only scheme writes its dark color scheme" || chk fail "ci dark-only"
+THEMES_DEST=$CD just remove-theme nordic </dev/null >/dev/null 2>&1; rm -rf "$CKG"
+# one failing target: descriptive, the others still apply, one summary line, non-zero exit, the printed retry works
+THEMES_DEST=$CD just install-theme gruvbox-material </dev/null >/dev/null 2>&1; printf 'a file\n' > "$T/ci-notadir"
+out=$(KDEGLOBALS="$T/ci-notadir/kdeglobals" THEMES_DEST=$CD just switch-theme gruvbox-material blue </dev/null 2>&1); rc=$?
+printf '%s\n' "$out" | grep -q 'Could not update kdeglobals for \[kde\]' && printf '%s\n' "$out" | grep -q 'error: .*mkdir' && printf '%s\n' "$out" | grep -qF 'retry: THEMES_TARGETS=kde just switch-theme gruvbox-material blue --yes' && printf '%s\n' "$out" | grep -qx '1 target failed: kde' && printf '%s\n' "$out" | grep -q '^\[gtk\] updated gtk-theme' && [ "$rc" != 0 ] && chk ok "a failing target names the app and file, the tool's own error and the retry command; the rest applies; one summary; exit 1" || chk fail "ci failure (rc=$rc: $out)"
+out=$(THEMES_TARGETS=kde THEMES_DEST=$CD just switch-theme gruvbox-material blue --yes </dev/null 2>&1); [ -f "$CKG" ] && printf '%s\n' "$out" | grep -q '^\[kde\] updated kdeglobals' && chk ok "the printed retry command writes kdeglobals" || chk fail "ci retry"
+rm -f "$T/ci-notadir"
+if command -v script >/dev/null 2>&1; then
+    # the switch checklist: every row ticked, Enter = the full switch
+    rm -rf "$CKG"; : > "$LOG"; out=$(THEMES_SWITCH_CHOOSE=1 THEMES_DEST=$CD script -qec "tools/themectl.sh themes switch gruvbox-material blue" /dev/null < <(printf '\n') 2>&1 | tr '\r' '\n')
+    printf '%s\n' "$out" | grep -q "Apply gruvbox-material to" && ! printf '%s\n' "$out" | grep -q "skipped:" && printf '%s\n' "$out" | grep -q '\[gtk\] updated gtk-theme' && [ -f "$CKG" ] && chk ok "the switch checklist starts fully ticked and Enter applies everything" || chk fail "ci checklist ($out)"
+    # the Flatpak recipe: grant after y, nothing missing afterwards, undo after y
+    : > "$FLATPAK_DB"; rm -f "$FLATPAK_DB.env" "$XDG_STATE_HOME/candy-for-gnome/flatpak-overrides"
+    printf 'y\n' | PATH="$T/fpbin:$PATH" script -qec "tools/themectl.sh flatpak access" /dev/null >/dev/null 2>&1
+    [ "$(wc -l < "$FLATPAK_DB")" = 6 ] && grep -qx 'QT_QPA_PLATFORMTHEME=kde' "$FLATPAK_DB.env" && chk ok "flatpak-access: the six entries and QT_QPA_PLATFORMTHEME=kde are granted after a y" || chk fail "ci flatpak grant"
+    out=$(PATH="$T/fpbin:$PATH" just flatpak-access </dev/null 2>&1); printf '%s\n' "$out" | grep -q "already has everything" && chk ok "flatpak-access: nothing missing on the second run" || chk fail "ci flatpak second run"
+    printf 'y\n' | PATH="$T/fpbin:$PATH" script -qec "tools/themectl.sh flatpak remove" /dev/null >/dev/null 2>&1
+    [ ! -s "$FLATPAK_DB" ] && grep -qx 'QT_QPA_PLATFORMTHEME=' "$FLATPAK_DB.env" && [ ! -e "$XDG_STATE_HOME/candy-for-gnome/flatpak-overrides" ] && chk ok "flatpak-access-remove: exactly what was added is removed" || chk fail "ci flatpak undo"
+else echo "  skip ci pty scenarios (script not installed)"; fi
+THEMES_DEST=$CD just remove-theme gruvbox-material </dev/null >/dev/null 2>&1; rm -rf "$CD" "$CKG" "$CKG.bak" "$KDE_COLOR_SCHEMES" "$T/ci-ours" "$T/ci-foreign"; : > "$FLATPAK_DB"; rm -f "$FLATPAK_DB.env"
+# the generated KDE and qtct files of EVERY scheme are committed and in sync with their generators (selftest checks their content for the schemes in scope)
+for d in themes/*/; do python3 -I tools/kde-gen.py "${d%/}" >/dev/null; python3 -I tools/qtct-gen.py "${d%/}" >/dev/null; done
+[ -z "$(git status --porcelain -- 'themes/*/kde' 'themes/*/qtct')" ] && chk ok "kde and qtct files of every scheme are in sync with their generators" || chk fail "kde/qtct files are stale: $(git status --porcelain -- 'themes/*/kde' 'themes/*/qtct' | head -3 | tr '\n' ' ')"
+
+# ---- END OF THE CI TIER: `tools/test.sh full` continues with the exhaustive suite below -----------------------------------------
+if [ "$tier" != full ]; then echo; echo "TOTAL ($tier tier): $pass PASS, $fail FAIL"; [ "$fail" -eq 0 ]; exit; fi
+
+# ---- the per-scheme install/switch/update/remove loop with every accent (full tier) ------------------------------------------------------
+LT=$(mktemp -d -p /dev/shm 2>/dev/null) || LT="$T"   # installed copies of the loop live in memory when possible (hundreds of small files per install)
+for s in $loop_schemes; do
+    echo "=== loop $s"
+    D="$LT/themes-$s"; THEMES_DEST=$D just install-theme "$s" >/dev/null 2>&1
+    n=$(ls "$D" 2>/dev/null | wc -l); [ "$n" -ge 1 ] && chk ok "install-theme: $n folders" || chk fail "install-theme produced nothing"
+    kdok=1; kdn=0; for f in themes/$s/kde/*; do kdn=$((kdn+1)); [ -f "$KDE_COLOR_SCHEMES/${f##*/}" ] || kdok=0; done
+    [ "$kdok" = 1 ] && [ "$kdn" -ge 1 ] && chk ok "install-theme: the KDE color scheme file(s) of $s are installed" || chk fail "KDE color schemes of $s missing after install-theme"
+    gt=$(awk -F'"' '/^gtk_name/ {print $2}' "themes/$s/palette.toml")
+    [ -f "$D/$gt/gtk-3.0/assets/check-symbolic.svg" ] && [ -f "$D/$gt/gtk-4.0/assets/check-symbolic.svg" ] && [ ! -L "$D/$gt/gtk-3.0/assets" ] && chk ok "installed theme is complete: real assets directories in gtk-3.0 and gtk-4.0" || chk fail "installed $gt lacks its assets"
+    for a in $(grep -v '^#' "themes/$s/accents/list" | awk 'NF {print $1}'); do
+        : > "$LOG"; THEMES_DEST=$D just switch-theme "$s" "$a" >/dev/null 2>&1; rc=$?
+        [ $rc -eq 0 ] && [ "$(grep -c gtk-theme "$LOG")" -ge 1 ] && chk ok "switch-theme $s $a" || chk fail "switch-theme $s $a (rc=$rc)"
+    done
+    last=$(grep -v '^#' "themes/$s/accents/list" | awk 'NF {print $1}' | tail -1); st=$(grep "^$s=" "$T/state/candy-for-gnome/accents" 2>/dev/null | cut -d= -f2)
+    [ "$st" = "$last" ] && chk ok "accent remembered ($st)" || chk fail "accent state '$st' != '$last'"
+    h1=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum); THEMES_DEST=$D just update-theme >/dev/null 2>&1; h2=$(find "$D" -type f -not -name .candy-for-gnome -exec sha1sum {} + | sort | sha1sum)   # the marker carries updated_at, which moves on purpose
+    [ "$h1" = "$h2" ] && chk ok "update-theme keeps the remembered accent" || chk fail "update-theme changed the installed tree"
+    THEMES_DEST=$D just remove-theme "$s" >/dev/null 2>&1; [ -z "$(ls -A "$D" 2>/dev/null)" ] && chk ok "remove-theme emptied the set" || chk fail "remove-theme left $(ls "$D" | tr '\n' ' ')"
+    kdok=1; for f in themes/$s/kde/*; do [ -e "$KDE_COLOR_SCHEMES/${f##*/}" ] && kdok=0; done
+    [ "$kdok" = 1 ] && chk ok "remove-theme removed the KDE color scheme file(s)" || chk fail "KDE color schemes of $s left after remove-theme"
+done
+[ "$LT" != "$T" ] && rm -rf "${LT:?}"
 
 # ---- featured themes come first in list-theme and the checklists ------------------------------------------------------------
 echo "=== featured themes"

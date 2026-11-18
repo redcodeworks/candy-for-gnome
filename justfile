@@ -126,6 +126,16 @@ new-scheme dir palette light="":
     echo "  just generate {{dir}} && just test {{dir}} (optionally tools/test.sh {{dir}}; CI on the pull request is the test)"
     echo "and add the credit to NOTICE and the scheme to the list in README.md (see .claude/skills/build-scheme/SKILL.md)."
 
+# Development: the CI tier of the test suite (what GitHub runs; needs podman or docker); scheme names narrow it, TEST_SCHEMES=all widens it
+[private]
+test-ci *schemes:
+    tools/test.sh ci {{schemes}}
+
+# Development: the full local suite (the CI tier plus the install/switch/update/remove loops and every other section); run it before a push
+[private]
+test-full *schemes:
+    tools/test.sh full {{schemes}}
+
 # Development: build schemes from the Ptyxis built-in palettes listed (status todo) in tools/ptyxis-schemes.tsv, or the named ones: draft, finalize, generate, check; a failing one is removed and recorded as excluded (python3 -I tools/bulk-scheme.py status|inventory for the rest)
 [private]
 bulk-scheme *args:
