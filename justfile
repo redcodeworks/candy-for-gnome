@@ -30,8 +30,8 @@ remove-theme name="":
 
 # Use a theme for GTK, Shell and libadwaita (name, accent optional)
 [group('themes')]
-switch-theme name="" accent="":
-    @tools/themectl.sh themes switch "{{name}}" "{{accent}}"
+switch-theme name="" accent="" yes="":
+    @tools/themectl.sh themes switch "{{name}}" "{{accent}}" "{{yes}}"
 
 # Icons: sets of the repos in tools/icon-sources.conf (Papirus, Gruvbox Plus, Zafiro, candy, Tela, Fluent, Conflux, WhiteSur; ICONS_URL replaces the papirus URL), listed from the registry without cloning; the sources of the chosen sets are cloned into ~/.cache/candy-for-gnome/icons and the sets installed into ~/.local/share/icons (ICONS_DEST)
 
@@ -59,6 +59,18 @@ remove-icon name="":
 [group('icons')]
 switch-icon name="":
     @tools/themectl.sh icons switch "{{name}}"
+
+# Flatpak: the global user override is changed only by these two recipes, never by the theme or icon commands
+
+# Let Flatpak apps see themes, icons and KDE colors (asks once)
+[group('flatpak')]
+flatpak-access:
+    @tools/themectl.sh flatpak access
+
+# Undo exactly what flatpak-access added
+[group('flatpak')]
+flatpak-access-remove:
+    @tools/themectl.sh flatpak remove
 
 # Development: regenerate one scheme (or all) from its scheme.toml: palette tables, GTK3, GTK4 and GNOME Shell CSS from the toolkits' own stock stylesheets, the libadwaita file, the accent maps and the GtkSourceView style schemes and the Ghostty themes (needs python3-gobject, GTK 3, GTK 4 and gnome-shell)
 [private]
@@ -90,6 +102,8 @@ generate theme="all":
         python3 -I tools/eza-gen.py "$d" >/dev/null
         python3 -I tools/zellij-gen.py "$d" >/dev/null
         python3 -I tools/claude-gen.py "$d" >/dev/null
+        python3 -I tools/kde-gen.py "$d" >/dev/null
+        python3 -I tools/qtct-gen.py "$d" >/dev/null
         python3 -I tools/palette-svg-gen.py "$d" >/dev/null
         python3 -I tools/theme-readme-gen.py "$d" >/dev/null
         rm -rf "$acc"
@@ -111,6 +125,16 @@ new-scheme dir palette light="":
     echo "Next: resolve the TODOs in themes/{{dir}}/scheme.toml, then run:"
     echo "  just generate {{dir}} && just test {{dir}} (optionally tools/test.sh {{dir}}; CI on the pull request is the test)"
     echo "and add the credit to NOTICE and the scheme to the list in README.md (see .claude/skills/build-scheme/SKILL.md)."
+
+# Development: the CI tier of the test suite (what GitHub runs; needs podman or docker); scheme names narrow it, TEST_SCHEMES=all widens it
+[private]
+test-ci *schemes:
+    tools/test.sh ci {{schemes}}
+
+# Development: the full local suite (the CI tier plus the install/switch/update/remove loops and every other section); run it before a push
+[private]
+test-full *schemes:
+    tools/test.sh full {{schemes}}
 
 # Development: build schemes from the Ptyxis built-in palettes listed (status todo) in tools/ptyxis-schemes.tsv, or the named ones: draft, finalize, generate, check; a failing one is removed and recorded as excluded (python3 -I tools/bulk-scheme.py status|inventory for the rest)
 [private]

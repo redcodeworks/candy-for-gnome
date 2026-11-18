@@ -47,6 +47,23 @@ def fit(bg, fg, toward, need=4.5):
         n += 1; c = mix(bg, toward, 0.05 * n)
     return c
 
+def qt_roles(S, v):
+    """The role table shared by tools/kde-gen.py and tools/qtct-gen.py (lower-case hex): the scheme's own roles, accent = the default accent of the
+    toolkit themes with the ink the GTK themes put on it (palette-from-scheme.build). Text colours come from the editor palette (4.5:1 on the
+    editor background and the window colour), surfaces from the scheme's ladder; a button face is moved until the text has 4.5:1 on it."""
+    roles, acc, _ = sr.pfs.build(S)
+    a, afg = acc[v.slot][S['default_accent']]
+    R, c = v.R, v.syn
+    r = dict(window=R['bg'].lower(), view=R['bg_deep'].lower(), alt_window=R['surface'].lower(), alt_view=R['bg'].lower(), text=c['fg'], dim=c['fg-dim'],
+             accent=a.lower(), accent_fg=afg.lower(), tip=R['popover'].lower(), neg=c['red'], neutral=c['yellow'], pos=c['green'], link=c['blue'],
+             visited=c['magenta'], dark=v.dark)
+    r['link'] = next((x for x in (c['blue'], c['cyan'], c['purple']) if x != r['accent']), c['blue'])   # a link must not turn into the accent colour when the accent is switched
+    r['button'] = fit(R['surface_high'].lower(), c['fg'], r['view'])
+    r['tip'] = fit(r['tip'], c['fg'], r['view'])
+    if contrast(r['accent_fg'], r['accent']) < 4.5:   # the GTK ink may be the best the scheme's own colours give; here pure black or white may win
+        r['accent_fg'] = max([r['accent_fg'], r['view'], c['fg'], '#000000', '#ffffff'], key=lambda x: contrast(x, r['accent']))
+    return r
+
 def ident(scheme, slot): return 'candy-for-gnome-%s-%s' % (scheme, slot)
 def rgb3(c): return ' '.join(str(v) for v in sr.hx(c))
 

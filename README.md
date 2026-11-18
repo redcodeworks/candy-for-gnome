@@ -18,13 +18,15 @@ States or other countries.
 ```
 git clone https://github.com/redcodeworks/candy-for-gnome && cd candy-for-gnome
 just install-theme          # checklist; or: just install-theme gruvbox-material
-just switch-theme            # apply it (GTK, Shell, libadwaita), asks for the accent; or: just switch-theme nordic cyan
+just switch-theme            # apply it (GTK, Shell, libadwaita and your tools), asks for the accent; or: just switch-theme nordic cyan
 just install-icon           # checklist; or: just install-icon Papirus-Dark
 just switch-icon Papirus-Dark
 ```
 
-Themes go to `~/.themes`, icons to `~/.local/share/icons`, as real copies. Checklists use `gum` when it is installed, otherwise a built-in picker: SPACE ticks,
-`/` filters, ENTER confirms, q cancels.
+Themes go to `~/.themes`, icons to `~/.local/share/icons`, as real copies. Checklists and choosers use a built-in picker: SPACE ticks,
+`/` filters, ENTER confirms, q cancels (`THEMES_PICKER=gum` opts into gum if you prefer it).
+
+In a terminal, `switch-theme` then lists what it will apply, with every row ticked: press Enter to apply everything, or untick what you do not want; skipped rows are named together with the command to apply them later. `--yes` (for example `just switch-theme nordic cyan --yes`) skips the list.
 
 `just switch-theme Adwaita` (the first entry of the list) goes back to the default GNOME look: Adwaita GTK and Shell theme, the stock terminal palette and editor style, and your terminal and command-line tools show their own defaults again. Your own config files are never edited; `just switch-theme <scheme>` brings the theme back. `just switch-icon Adwaita` does the same for icons.
 
@@ -133,11 +135,27 @@ removes the theme files and never edits your configs; it tells you what you may 
 A dark-only theme uses its dark colors for both modes. Run `switch-theme` again after you change the system
 light/dark setting for the tools marked as following it at switch time.
 
+## KDE and Qt apps
+
+Every theme also comes as a KDE color scheme and a Qt palette, so KDE and Kirigami apps (also the Flatpak ones)
+can follow the same colors. `install-theme` copies them to
+`~/.local/share/color-schemes`, and to qt5ct or qt6ct only when you use that program (its config file or its program is found).
+`switch-theme` then writes the chosen light or dark variant, with your accent, into `~/.config/kdeglobals`. It
+creates that file when it is missing and updates it when candy-for-gnome wrote it. A `kdeglobals` written by
+something else (for example Noctalia's template) is left alone unless you answer `y` when asked; the old file is
+kept as `kdeglobals.bak` and the command to put it back is printed. Your other settings in the file stay. The
+qt5ct and qt6ct config files are never edited; `switch-theme` tells you which palette to pick. `remove-theme` and
+`switch-theme Adwaita` take our colors out again. Restart KDE and Qt apps after switching. KDE apps in a Flatpak also
+need `just flatpak-access` (see below).
+
 ## Flatpak apps
 
-Flatpak apps cannot read `~/.themes`, the icons or `~/.config/gtk-3.0|4.0` unless allowed. After
-`switch-theme` you are asked once (default no) whether to grant read-only access for what is missing, and
-the grant is undone when you remove the last theme and icon set. Nothing is widened silently.
+Flatpak apps cannot read `~/.themes`, the icons or `~/.config/gtk-3.0|4.0` unless allowed, and KDE apps in a
+Flatpak also need `kdeglobals`, the color schemes and the setting `QT_QPA_PLATFORMTHEME=kde` (in lowercase).
+The theme commands never change any of this; they only print a hint while something is missing. Run
+`just flatpak-access` once when you want it: it shows what is missing, asks (default no), applies only the
+missing entries, and prints the exact commands that undo it. Entries you set yourself count as done. To take back
+exactly what it added, run `just flatpak-access-remove`.
 
 ## Contributing
 

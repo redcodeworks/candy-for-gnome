@@ -13,6 +13,7 @@
 #   * Managed links are relative links created only when the name is free or already ours (the target contains `candy-for-gnome-`).
 #   * The tool's own config is edited only after ONE question per tool (default no; without a terminal the exact lines are printed and nothing is edited),
 #     only the lines named in the question change, and remove-theme never edits a user config (it prints what may be deleted).
+app_cur=""; app_scheme=""
 app_names=(alacritty helix yazi kitty bat eza zellij claude)
 app_brew="${CANDY_FOR_GNOME_BREW_BIN:-/home/linuxbrew/.linuxbrew/bin}"
 app_exe() { case "$1" in helix) echo hx ;; *) echo "$1" ;; esac; }
@@ -56,6 +57,7 @@ app_install() {   # app_install SCHEME: copy the per-scheme files of every insta
     local s="$1" a src dst n
     for a in "${app_names[@]}"; do
         app_present "$a" || continue
+        sw_on "app:$a" || continue
         n=0
         while IFS='|' read -r src dst; do
             pty_may_touch "$s" Replace "$dst" || continue
@@ -63,7 +65,7 @@ app_install() {   # app_install SCHEME: copy the per-scheme files of every insta
             if [ -d "$src" ]; then rm -rf "$dst"; cp -r "$src" "$dst"; else cp "$src" "$dst"; fi
             n=$((n+1))
         done < <(app_targets "$a" "$s")
-        if [ "$n" -gt 0 ]; then echo "Installed $a theme file(s) of $s ($n in $(app_dir "$a")/$(app_sub "$a"))."; [ "$a" != bat ] || app_bat_cache; fi
+        if [ "$n" -gt 0 ]; then echo "[$a] installed $s"; [ "$a" != bat ] || app_bat_cache; fi
     done
     return 0
 }
@@ -86,16 +88,18 @@ app_link_targets_scheme() {   # exact names only: catppuccin must not claim a li
     case "$(basename "$(readlink "$1")")" in "candy-for-gnome-$2-dark."*|"candy-for-gnome-$2-light."*|"candy-for-gnome-$2.kdl") return 0 ;; esac; return 1
 }
 app_remove() {    # remove-theme: marked files, and managed links that point at this scheme; the user's configs are never edited
-    local s="$1" a src dst d l
+    local s="$1" a src dst d l rn
     for a in "${app_names[@]}"; do
         app_present "$a" || continue
+        rn=0
         while IFS='|' read -r src dst; do
             [ -e "$dst" ] || continue
-            if app_ours "$s" "$dst"; then rm -rf "$dst"; echo "Removed $dst"; else echo "Left $dst alone (not installed by candy-for-gnome)." >&2; fi
+            if app_ours "$s" "$dst"; then rm -rf "$dst"; rn=$((rn+1)); else echo "Left $dst alone (not installed by candy-for-gnome)." >&2; fi
         done < <(app_targets "$a" "$s")
         while IFS='|' read -r l _; do
-            if app_link_ours "$l" && app_link_targets_scheme "$l" "$s"; then rm -f "$l"; echo "Removed $l"; fi
+            if app_link_ours "$l" && app_link_targets_scheme "$l" "$s"; then rm -f "$l"; rn=$((rn+1)); fi
         done < <(app_links "$a" "$s" dark light)
+        if [ "$rn" -gt 0 ]; then echo "[$a] removed $s"; fi
         [ "$a" != bat ] || app_bat_cache
         d=$(app_dir "$a"); app_note_config "$a" "$d"
     done
@@ -128,8 +132,13 @@ app_links() {
     return 0
 }
 app_link() {      # app_link LINK TARGET: create or retarget a managed link; a name that exists and is not ours is asked about (default no) or refused
-    local link="$1" tgt="$2" a
-    if { [ ! -e "$link" ] && [ ! -L "$link" ]; } || app_link_ours "$link"; then mkdir -p "$(dirname "$link")"; ln -sfn "$tgt" "$link"; return 0; fi
+    local link="$1" tgt="$2" a err
+    if { [ ! -e "$link" ] && [ ! -L "$link" ]; } || app_link_ours "$link"; then
+        if ! err=$(mkdir -p "$(dirname "$link")" 2>&1 && ln -sfn "$tgt" "$link" 2>&1); then
+            tfail "app:$app_cur" "$app_cur" "$(basename "$link")" "ln -sfn $tgt $link" "$err" "$(retry_cmd "app:$app_cur" "$app_scheme" "${accent_pick:-}")"; return 1
+        fi
+        return 0
+    fi
     if [ "${FORCE:-}" = 1 ]; then a=y
     elif [ "$tty_in" = 1 ]; then read -r -u 3 -p "$link exists and was not created by candy-for-gnome. Replace it with a link to the theme? [y/N] " a || a=n
     else echo "Refused: $link exists and was not created by candy-for-gnome; left alone (FORCE=1 replaces it, or run in a terminal to be asked)." >&2; return 1; fi
@@ -145,13 +154,12 @@ app_create() {    # app_create FILE COMMENT_PREFIX LINES: the config file does n
     [ ! -e "$f" ] && [ ! -L "$f" ] || return 1
     mkdir -p "$(dirname "$f")"
     ( set -o noclobber; printf '%s created by candy-for-gnome: only the theme lines below. Edit freely; switch-theme never changes lines you edit.\n%s\n' "$c" "$txt" > "$f" ) 2>/dev/null || return 1
-    echo "Created $f with the theme lines of candy-for-gnome."
 }
 app_offer() {     # app_offer FILE QUESTION PRINT_TEXT EDIT_FUNCTION: ask once (tty), edit on yes; else print the lines to add yourself
     local file="$1" q="$2" txt="$3" fn="$4"
     if [ "$tty_in" = 1 ]; then
         if app_ask "$q"; then
-            if "$fn" "$file"; then echo "Edited $file."; return 0; fi
+            if "$fn" "$file"; then return 0; fi
             echo "Could not edit $file safely. Make this change yourself:"
         else echo "Left $file alone. To use the theme, make this change yourself:"; fi
     else echo "Not editing $file without a terminal. To use the theme, make this change yourself:"; fi
@@ -230,6 +238,7 @@ zj_edit() {       # replace theme_dark / theme_light nodes in place, append the 
 }
 
 # ---- switch: one function per app -------------------------------------------------------------------------------------------------------
+app_ok() { echo "[$1] updated $2 with $3"; }   # the one success line of an app
 app_links_apply() {   # app_links_apply APP SCHEME: create or retarget every managed link; returns 1 when one was refused
     local l t rc=0
     while IFS='|' read -r l t; do app_link "$l" "$t" || rc=1; done < <(app_links "$1" "$2")
@@ -238,7 +247,7 @@ app_links_apply() {   # app_links_apply APP SCHEME: create or retarget every man
 alacritty_switch() {
     local s="$1" d f; d=$(app_dir alacritty); f="$d/alacritty.toml"
     app_ready alacritty "$s" && app_links_apply alacritty "$s" || return 0
-    echo "Alacritty theme is now $s ($(app_pick alacritty "$s" toml "$(pty_mode)") variant; run switch-theme again after changing light/dark)."
+    app_ok alacritty candy-for-gnome.toml "$s"
     al_path=$(app_tilde "$d/themes/candy-for-gnome.toml"); export al_path
     if [ -f "$f" ] && grep -qE '^[^#]*candy-for-gnome\.toml' "$f"; then :
     elif [ -f "$f" ]; then
@@ -250,7 +259,7 @@ import = [ \"$al_path\" ]   # add this element to your existing import list; kee
 helix_switch() {
     local s="$1" d f; d=$(app_dir helix); f="$d/config.toml"
     app_ready helix "$s" && app_links_apply helix "$s" || return 0
-    echo "Helix theme is now $s ($(app_pick helix "$s" toml "$(pty_mode)") variant; run switch-theme again after changing light/dark). In a running Helix: :config-reload."
+    app_ok helix candy-for-gnome.toml "$s"
     if [ -f "$f" ] && grep -qE '^[ \t]*theme[ \t]*=[ \t]*"candy-for-gnome"' "$f"; then :
     elif [ -f "$f" ]; then
         local cur; cur=$(awk 'BEGIN { top = 1 } /^[ \t]*\[/ { top = 0 } top && /^[ \t]*theme[ \t]*=/ { sub(/^[ \t]*theme[ \t]*=[ \t]*/, ""); print; exit }' "$f")
@@ -261,7 +270,7 @@ helix_switch() {
 yazi_switch() {
     local s="$1" d f; d=$(app_dir yazi); f="$d/theme.toml"
     app_ready yazi "$s" && app_links_apply yazi "$s" || return 0
-    echo "Yazi flavor is now $s (follows the terminal's light/dark; your theme.toml colors still override the flavor)."
+    app_ok yazi flavors "$s"
     if [ -f "$f" ] && grep -qE '^[[:space:]]*dark[[:space:]]*=[[:space:]]*"candy-for-gnome-dark"' "$f" && grep -qE '^[[:space:]]*light[[:space:]]*=[[:space:]]*"candy-for-gnome-light"' "$f"; then :
     elif [ -f "$f" ]; then
         app_offer "$f" "Set dark = \"candy-for-gnome-dark\" and light = \"candy-for-gnome-light\" in the [flavor] table of $f (an existing dark/light line is replaced; nothing else changes)?" \
@@ -273,13 +282,13 @@ light = "candy-for-gnome-light"' yz_edit
 kitty_switch() {
     local s="$1"
     app_ready kitty "$s" && app_links_apply kitty "$s" || return 0
-    echo "kitty theme is now $s (dark-theme.auto.conf, light-theme.auto.conf and no-preference-theme.auto.conf in $(app_dir kitty); no config edit needed, kitty 0.38+ follows the system)."
+    app_ok kitty theme.auto.conf "$s"
 }
 bat_switch() {
     local s="$1" d f; d=$(app_dir bat); f="$d/config"
     app_ready bat "$s" && app_links_apply bat "$s" || return 0
     app_bat_cache
-    echo "bat themes candy-for-gnome-dark and candy-for-gnome-light are now $s (cache rebuilt; bat picks light or dark from the terminal's colors)."
+    app_ok bat themes "$s"
     if [ -f "$f" ] && grep -qxF -- '--theme-dark="candy-for-gnome-dark"' "$f" && grep -qxF -- '--theme-light="candy-for-gnome-light"' "$f" && grep -qxF -- '--theme="auto:system"' "$f"; then :
     elif [ -f "$f" ]; then
         app_offer "$f" "Set --theme=\"auto:system\", --theme-dark=\"candy-for-gnome-dark\" and --theme-light=\"candy-for-gnome-light\" in $f (an existing --theme line is replaced; nothing else changes)?" \
@@ -296,18 +305,18 @@ eza_switch() {
         if [ -e "$l.candy-bak" ] || [ -L "$l.candy-bak" ]; then echo "Refused: $l is your own file and $l.candy-bak already exists; left alone." >&2; return 0; fi
         a=n; if [ "${FORCE:-}" = 1 ]; then a=y; elif [ "$tty_in" = 1 ]; then read -r -u 3 -p "$l is your own file. Move it aside as theme.yml.candy-bak and link the theme in its place? [y/N] " a || a=n; fi
         case "$a" in
-            [yY]*) mv "$l" "$l.candy-bak"; echo "Moved your $l to $l.candy-bak (move it back to undo)." ;;
+            [yY]*) mv "$l" "$l.candy-bak"; echo "Moved your $l to $l.candy-bak (undo: mv $l.candy-bak $l)." ;;
             *) echo "Left $l alone. To use the theme: mv $l $l.candy-bak && ln -s $t $l"; return 0 ;;
         esac
     fi
     app_link "$l" "$t" || return 0
-    echo "eza theme is now $s ($v variant; run switch-theme again after changing light/dark)."
+    app_ok eza theme.yml "$s"
     [ -z "${EZA_COLORS:-}${LS_COLORS:-}" ] || echo "Note: EZA_COLORS or LS_COLORS is set in this shell and overrides parts of theme.yml."
 }
 zellij_switch() {
     local s="$1" d f; d=$(app_dir zellij); f="$d/config.kdl"
     app_ready zellij "$s" && app_links_apply zellij "$s" || return 0
-    echo "zellij themes candy-for-gnome-dark and candy-for-gnome-light are now $s (zellij reloads its themes folder; restart a session if it does not)."
+    app_ok zellij candy-for-gnome.kdl "$s"
     if [ -f "$f" ] && grep -qE '^[ \t]*theme_dark[ \t]+"candy-for-gnome-dark"' "$f" && grep -qE '^[ \t]*theme_light[ \t]+"candy-for-gnome-light"' "$f"; then :
     elif [ -f "$f" ]; then
         app_offer "$f" "Set theme_dark \"candy-for-gnome-dark\" and theme_light \"candy-for-gnome-light\" in $f (existing theme_dark / theme_light lines are replaced; your theme line and themes block stay)?" \
@@ -319,7 +328,7 @@ claude_ours() { [ -f "$1" ] && grep -q '"name": "candy-for-gnome: ' "$1"; }
 claude_scheme_of() { sed -n 's/.*"name": "candy-for-gnome: \([^ "]*\) .*/\1/p' "$1" | head -n1; }
 claude_variant_of() { sed -n 's/.*"name": "candy-for-gnome: [^ "]* \([a-z]*\)".*/\1/p' "$1" | head -n1; }
 claude_switch() {
-    local s="$1" d dst src v a; d=$(app_dir claude); dst="$d/themes/candy-for-gnome.json"
+    local s="$1" d dst src v a err; d=$(app_dir claude); dst="$d/themes/candy-for-gnome.json"
     v=$(pty_mode); [ -f "$troot/$s/claude/$s-$v.json" ] || { [ "$v" = dark ] && v=light || v=dark; }   # a dark-only scheme has only the dark file
     src="$troot/$s/claude/$s-$v.json"
     [ -f "$src" ] || { echo "Claude Code theme not applied: $s has no generated theme."; return 0; }
@@ -328,10 +337,10 @@ claude_switch() {
         else echo "Refused: $dst exists and was not installed by candy-for-gnome; left alone (FORCE=1 replaces it, or run in a terminal to be asked)." >&2; return 0; fi
         case "$a" in [yY]*) ;; *) echo "Left $dst alone." >&2; return 0 ;; esac
     fi
-    mkdir -p "$d/themes"; cp "$src" "$dst"
-    echo "Claude Code theme file is now $s ($v variant; run switch-theme again after changing light/dark; Claude Code reloads the folder, restart it once if the folder is new)."
+    if ! err=$(mkdir -p "$d/themes" 2>&1 && cp "$src" "$dst" 2>&1); then tfail "app:claude" claude candy-for-gnome.json "copy $src to $dst" "$err" "$(retry_cmd app:claude "$s" "${accent_pick:-}")"; return 0; fi
+    app_ok claude candy-for-gnome.json "$s"
     if [ -f "$d/settings.json" ] && grep -qE '"theme"[[:space:]]*:[[:space:]]*"custom:candy-for-gnome"' "$d/settings.json"; then :
-    else echo "Claude Code: select it with /theme (stored as custom:candy-for-gnome), or put \"theme\": \"custom:candy-for-gnome\" in $d/settings.json yourself; that file is never edited here."; fi
+    else echo "[claude] pick it once with /theme (custom:candy-for-gnome); $d/settings.json is never edited here"; fi
 }
 claude_refresh() {   # update: rewrite the switch-time file when it is ours and belongs to this scheme
     local s="$1" d dst v; app_present claude || return 0
@@ -343,7 +352,7 @@ claude_refresh() {   # update: rewrite the switch-time file when it is ours and 
 claude_remove() {
     local s="$1" d dst; app_present claude || return 0
     d=$(app_dir claude); dst="$d/themes/candy-for-gnome.json"
-    if claude_ours "$dst" && [ "$(claude_scheme_of "$dst")" = "$s" ]; then rm -f "$dst"; echo "Removed $dst"
+    if claude_ours "$dst" && [ "$(claude_scheme_of "$dst")" = "$s" ]; then rm -f "$dst"; echo "[claude] removed $s"
         if [ -f "$d/settings.json" ] && grep -q 'custom:candy-for-gnome' "$d/settings.json"; then echo "Claude Code: $d/settings.json still selects custom:candy-for-gnome (not edited); pick another theme with /theme." >&2; fi
     fi
     return 0
@@ -375,7 +384,8 @@ app_adwaita() {   # switch-theme Adwaita: for every installed app that has a MAN
 }
 app_switch() {    # app_switch SCHEME: every installed app
     local s="$1" a
-    for a in "${app_names[@]}"; do app_present "$a" && "${a}_switch" "$s"; done
+    app_scheme="$s"
+    for a in "${app_names[@]}"; do if app_present "$a" && sw_on "app:$a"; then app_cur="$a"; "${a}_switch" "$s"; fi; done
     return 0
 }
 apps_status() {   # for list-themes: nothing when no supported app is installed; else one line with the themed apps and one naming the skipped ones
